@@ -10,6 +10,8 @@ import { getDashboardKPIs, getMonthlyStats, getStationStats, getVehicleStats, ge
 import { DashboardKPIs, MonthlyStats, StationStats, VehicleStats, Refuel, DashboardFilters } from '@/lib/types';
 import { formatCurrency, formatNumber, formatLiters, formatKmL, formatDateTime, calcVariation, formatVariation, cn } from '@/lib/utils';
 import { MONTHS, YEARS, MONTHS_SHORT } from '@/lib/constants';
+import { collection, getDocs } from 'firebase/firestore';
+import { db, COLLECTIONS } from '@/lib/firebase/firestore';
 import Link from 'next/link';
 
 // Lazy load charts (ApexCharts requires browser)
@@ -337,9 +339,19 @@ export default function DashboardPage() {
   const [recentRefuels, setRecentRefuels] = useState<Refuel[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [debugDb, setDebugDb] = useState<any>(null);
 
   const loadData = useCallback(async () => {
     try {
+      // DEBUG: Count all refuels by month
+      const snap = await getDocs(collection(db, COLLECTIONS.REFUELS));
+      const months: any = {};
+      snap.forEach(d => {
+        const m = d.data().month || 'NO_MONTH';
+        months[m] = (months[m] || 0) + 1;
+      });
+      setDebugDb(months);
+
       const refuelFilters = {
         year: filters.year,
         month: filters.month,
@@ -392,6 +404,15 @@ export default function DashboardPage() {
             {monthLabel} {filters.year} · Visão gerencial
           </p>
         </div>
+
+        {debugDb && (
+          <div className="bg-red-900/50 border border-red-500 text-white p-4 rounded-xl mb-4 font-mono text-sm">
+            <strong>DEBUG BANCO DE DADOS (Tire um print disso e me mande!):</strong><br/>
+            Total de registros por mês em todo o banco:<br/>
+            {JSON.stringify(debugDb, null, 2)}
+          </div>
+        )}
+
         <div className="flex items-center gap-3">
           <FilterBar filters={filters} onChange={setFilters} />
           <button
