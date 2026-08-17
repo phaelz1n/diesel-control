@@ -1,13 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Droplets, DollarSign } from 'lucide-react';
+import { Plus, Edit2, Trash2, Droplets, DollarSign, Upload, Download, X } from 'lucide-react';
 import { getVibraOrders, deleteVibraOrder, getVibraSummary, VibraSummary } from '@/services/expenses';
 import { VibraOrder } from '@/lib/types';
 import { formatCurrency, formatNumber, formatDate, toYearMonth, cn } from '@/lib/utils';
 import { MONTHS, YEARS, VIBRA_STATUS_LABELS } from '@/lib/constants';
 import { usePermissions } from '@/lib/hooks/usePermissions';
+import { useAuth } from '@/lib/hooks/useAuth';
+import Papa from 'papaparse';
+import { batchCreate, COLLECTIONS, createDocument } from '@/lib/firebase/firestore';
+import { Timestamp } from 'firebase/firestore';
 
 function Skeleton({ className }: { className?: string }) {
   return <div className={cn('skeleton', className)} />;
@@ -15,12 +19,22 @@ function Skeleton({ className }: { className?: string }) {
 
 export default function VibraPage() {
   const { isAdmin } = usePermissions();
+  const { user } = useAuth();
   const now = new Date();
   const [competence, setCompetence] = useState(toYearMonth(now));
   const [orders, setOrders] = useState<VibraOrder[]>([]);
   const [summary, setSummary] = useState<VibraSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    issueDate: formatDate(new Date()).split('/').reverse().join('-'), // YYYY-MM-DD
+    liters: '',
+    unitPrice: '',
+  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [selYear, selMonth] = competence.split('-');
 
@@ -61,6 +75,116 @@ export default function VibraPage() {
     color: 'var(--text-primary)',
   };
 
+  const monthMap: Record<string, string> = {
+    'JANEIRO': '01', 'FEVEREIRO': '02', 'MARÇO': '03', 'MARCO': '03',
+    'ABRIL': '04', 'MAIO': '05', 'JUNHO': '06', 'JULHO': '07',
+    'AGOSTO': '08', 'SETEMBRO': '09', 'OUTUBRO': '10', 'NOVEMBRO': '11', 'DEZEMBRO': '12'
+  };
+
+  const handleDownloadTemplate = () => {
+    const csvContent = "Mês,Emissão,Pagamento,Litros Pedidos,Vlr Unit (R$),Vlr Total\nAGOSTO,15/08/2026,,15000,5.80,87000.00";
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "modelo_importacao_vibra.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCreateOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setSaving(true);
+    try {
+      const liters = parseFloat(formData.liters);
+      const unitPrice = parseFloat(formData.unitPrice);
+      const totalValue = liters * unitPrice;
+      const [year, month, day] = formData.issueDate.split('-');
+      
+      const newOrder = {
+        competence: `${year}-${month}`,
+        issueDate: Timestamp.fromDate(new Date(Number(year), Number(month) - 1, Number(day))),
+        paymentDate: null,
+        liters,
+        unitPrice,
+        totalValue,
+        status: 'PAID' as const,
+      };
+
+      await createDocument(COLLECTIONS.VIBRA_ORDERS, newOrder, user.uid);
+      toast.success('Pedido criado com sucesso!');
+      setModalOpen(false);
+      load();
+    } catch (err) {
+      toast.error('Erro ao criar pedido');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    setImporting(true);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results: any) => {
+        try {
+          const rows = results.data as any[];
+          const newOrders: Omit<VibraOrder, 'id' | 'createdAt' | 'updatedAt'>[] = [];
+          
+          let currentMonth = 'JANEIRO';
+
+          for (const row of rows) {
+            if (row['Mês']) {
+              currentMonth = String(row['Mês']).toUpperCase().trim();
+            }
+            if (!row['Emissão'] || !row['Litros Pedidos']) continue;
+
+            const parseDate = (str: string) => {
+              const parts = str.split('/');
+              if (parts.length === 3) return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+              return new Date();
+            };
+
+            const issueDate = parseDate(row['Emissão']);
+            const paymentDate = row['Pagamento'] ? parseDate(row['Pagamento']) : undefined;
+            
+            const mm = monthMap[currentMonth] || '01';
+
+            newOrders.push({
+              competence: `2026-${mm}`, // Hardcoded year based on sheet
+              issueDate: issueDate,
+              paymentDate: paymentDate,
+              liters: parseFloat(row['Litros Pedidos']),
+              unitPrice: parseFloat(row['Vlr Unit (R$)'] || '0'),
+              totalValue: parseFloat(row['Vlr Total'] || '0'),
+              status: 'PAID',
+              createdBy: user.uid,
+              updatedBy: user.uid,
+            });
+          }
+
+          if (newOrders.length > 0) {
+            await batchCreate(COLLECTIONS.VIBRA_ORDERS, newOrders, user.uid);
+            toast.success(`${newOrders.length} pedidos Vibra importados!`);
+            load();
+          }
+        } catch (err) {
+          console.error(err);
+          toast.error('Erro na importação');
+        } finally {
+          setImporting(false);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+      }
+    });
+  };
+
   return (
     <div className="page-container animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -78,12 +202,31 @@ export default function VibraPage() {
             {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
           {isAdmin && (
-            <button
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
-              style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)', boxShadow: '0 2px 12px rgba(37,99,235,0.4)' }}
-            >
-              <Plus size={16} /> Novo Pedido
-            </button>
+            <div className="flex gap-2">
+              <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              >
+                <Upload size={16} /> {importing ? 'Importando...' : 'Importar CSV'}
+              </button>
+              <button
+                onClick={handleDownloadTemplate}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              >
+                <Download size={16} /> Baixar Modelo
+              </button>
+              <button
+                onClick={() => setModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)', boxShadow: '0 2px 12px rgba(37,99,235,0.4)' }}
+              >
+                <Plus size={16} /> Novo Pedido
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -216,6 +359,79 @@ export default function VibraPage() {
           </table>
         </div>
       </div>
+
+      {/* Modal Novo Pedido */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Novo Pedido Vibra</h2>
+              <button onClick={() => setModalOpen(false)} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateOrder} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Data de Emissão</label>
+                <input
+                  type="date"
+                  required
+                  value={formData.issueDate}
+                  onChange={(e) => setFormData({ ...formData, issueDate: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-xl outline-none"
+                  style={{ background: 'var(--bg-main)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Litros Pedidos</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={formData.liters}
+                  onChange={(e) => setFormData({ ...formData, liters: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-xl outline-none"
+                  style={{ background: 'var(--bg-main)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Valor Unitário (R$)</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  required
+                  value={formData.unitPrice}
+                  onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-xl outline-none"
+                  style={{ background: 'var(--bg-main)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                  style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)' }}
+                >
+                  {saving ? 'Salvando...' : 'Salvar Pedido'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
