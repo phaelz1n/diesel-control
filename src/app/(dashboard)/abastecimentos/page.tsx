@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   Plus, Search, Filter, Download, Edit2, Trash2,
-  ChevronLeft, ChevronRight, Fuel, X, SlidersHorizontal,
+  ChevronLeft, ChevronRight, Fuel, X, SlidersHorizontal, Loader2
 } from 'lucide-react';
 import { getRefuels, deleteRefuel } from '@/services/refuels';
 import { Refuel, RefuelFilters } from '@/lib/types';
@@ -37,6 +37,11 @@ export default function AbastecimentosPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  // Bulk Delete State
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   const [filters, setFilters] = useState<RefuelFilters>({
     year: currentYear,
@@ -99,6 +104,49 @@ export default function AbastecimentosPage() {
     }
   };
 
+  const handleSelectAll = () => {
+    if (selectedIds.size === displayed.length && displayed.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayed.map((r) => r.id)));
+    }
+  };
+
+  const handleSelectOne = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirmBulkDelete) {
+      setConfirmBulkDelete(true);
+      return;
+    }
+    setIsBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await Promise.all(ids.map((id) => deleteRefuel(id)));
+      if (profile) {
+        await createAuditLog(
+          profile.uid, profile.email, profile.name,
+          'DELETE', 'refuel', 'bulk',
+          `${profile.name} excluiu ${ids.length} abastecimentos em massa`
+        );
+      }
+      setRefuels((prev) => prev.filter((r) => !selectedIds.has(r.id)));
+      setSelectedIds(new Set());
+      toast.success(`${ids.length} abastecimento(s) excluído(s).`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao excluir em massa.');
+    } finally {
+      setIsBulkDeleting(false);
+      setConfirmBulkDelete(false);
+    }
+  };
+
   // Filtered view (client-side search)
   const displayed = search
     ? refuels.filter((r) =>
@@ -143,6 +191,25 @@ export default function AbastecimentosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canDelete && selectedIds.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              className={cn(
+                'flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all',
+                confirmBulkDelete
+                  ? 'bg-red-500 text-white shadow-[0_2px_12px_rgba(239,68,68,0.4)]'
+                  : 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
+              )}
+            >
+              {isBulkDeleting ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Trash2 size={15} />
+              )}
+              {confirmBulkDelete ? 'Confirmar Exclusão' : `Excluir (${selectedIds.size})`}
+            </button>
+          )}
           {canExport && (
             <button
               onClick={handleExportExcel}
@@ -240,6 +307,15 @@ export default function AbastecimentosPage() {
           <table className="w-full data-table min-w-[900px]">
             <thead>
               <tr style={{ background: 'var(--bg-secondary)' }}>
+                <th className="w-12 px-4 py-3 text-center">
+                  <input
+                    type="checkbox"
+                    checked={displayed.length > 0 && selectedIds.size === displayed.length}
+                    onChange={handleSelectAll}
+                    className="rounded border-gray-400 bg-transparent text-blue-500 focus:ring-blue-500"
+                    style={{ width: 16, height: 16 }}
+                  />
+                </th>
                 <th className="text-left px-4 py-3">Data/Hora</th>
                 <th className="text-left px-4 py-3">Veículo</th>
                 <th className="text-left px-4 py-3">Posto</th>
@@ -254,7 +330,7 @@ export default function AbastecimentosPage() {
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <tr key={i}>
-                    {Array.from({ length: 8 }).map((__, j) => (
+                    {Array.from({ length: 9 }).map((__, j) => (
                       <td key={j} className="px-4 py-3">
                         <Skeleton className="h-5 w-full" />
                       </td>
@@ -263,7 +339,7 @@ export default function AbastecimentosPage() {
                 ))
               ) : displayed.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-16 text-center">
+                  <td colSpan={9} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <Fuel size={40} className="text-blue-400/20" />
                       <p style={{ color: 'var(--text-muted)' }}>
@@ -281,9 +357,18 @@ export default function AbastecimentosPage() {
                 displayed.map((r) => (
                   <tr
                     key={r.id}
-                    className="border-t transition-colors"
+                    className={cn('border-t transition-colors', selectedIds.has(r.id) && 'bg-blue-500/5')}
                     style={{ borderColor: 'var(--border-subtle)' }}
                   >
+                    <td className="px-4 py-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(r.id)}
+                        onChange={() => handleSelectOne(r.id)}
+                        className="rounded border-gray-400 bg-transparent text-blue-500 focus:ring-blue-500"
+                        style={{ width: 16, height: 16 }}
+                      />
+                    </td>
                     <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
                       {formatDateTime(r.date)}
                     </td>
