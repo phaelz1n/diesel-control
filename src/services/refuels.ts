@@ -17,8 +17,9 @@ import {
   QueryConstraint,
 } from 'firebase/firestore';
 import { db, COLLECTIONS, serializeDoc, serializeQuerySnapshot } from '@/lib/firebase/firestore';
-import { Refuel, RefuelFilters, DashboardKPIs, MonthlyStats, StationStats, VehicleStats, DailyStats, YearlyStats } from '@/lib/types';
-import { toYearMonth, calcTotalValue, calcKmTraveled, calcAvgKmL } from '@/lib/utils';
+import { Refuel, RefuelFilters, DashboardKPIs, MonthlyStats, StationStats, VehicleStats, DailyStats, YearlyStats, VibraOrder, MonthlyExpense } from '@/lib/types';
+import { getVibraOrders, getMonthlyExpenses } from './expenses';
+import { toYearMonth, calcTotalValue, calcKmTraveled, calcAvgKmL, formatCurrency } from '@/lib/utils';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 
 // ============================================================
@@ -210,9 +211,36 @@ export async function deleteRefuel(id: string): Promise<void> {
 export async function getDashboardKPIs(filters: RefuelFilters): Promise<DashboardKPIs> {
   const refuels = await getRefuelsForPeriod(filters);
 
+  // Fetch Vibra and Gastos Mensais to calculate totalSpent
+  let totalSpent = 0;
+  
+  // se houver mês e ano, usamos a competence. Senão, teríamos que filtrar no frontend,
+  // mas para simplificar, se não houver filtro, buscamos tudo e filtramos se necessário.
+  let vOrders: VibraOrder[] = [];
+  let mExpenses: MonthlyExpense[] = [];
+  
+  if (filters.year) {
+    if (filters.month) {
+      vOrders = await getVibraOrders(filters.month);
+      mExpenses = await getMonthlyExpenses(filters.month);
+    } else {
+      // Fetch all and filter by year
+      const allV = await getVibraOrders();
+      const allM = await getMonthlyExpenses();
+      vOrders = allV.filter(v => v.competence.startsWith(String(filters.year)));
+      mExpenses = allM.filter(m => m.competence.startsWith(String(filters.year)));
+    }
+  } else {
+    vOrders = await getVibraOrders();
+    mExpenses = await getMonthlyExpenses();
+  }
+
+  totalSpent = vOrders.reduce((s, v) => s + v.totalValue, 0) + 
+               mExpenses.reduce((s, m) => s + m.value, 0);
+
   if (refuels.length === 0) {
     return {
-      totalValue: 0, totalLiters: 0, totalRefuels: 0,
+      totalValue: 0, totalSpent, totalLiters: 0, totalRefuels: 0,
       avgUnitPrice: 0, avgKmL: 0, avgCostPerRefuel: 0,
     };
   }
@@ -223,6 +251,7 @@ export async function getDashboardKPIs(filters: RefuelFilters): Promise<Dashboar
 
   return {
     totalValue,
+    totalSpent,
     totalLiters,
     totalRefuels: refuels.length,
     avgUnitPrice: totalLiters > 0 ? totalValue / totalLiters : 0,

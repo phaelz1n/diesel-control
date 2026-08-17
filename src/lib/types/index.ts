@@ -245,6 +245,7 @@ export interface AppSettings {
 
 export interface DashboardKPIs {
   totalValue: number;
+  totalSpent: number; // Vibra + Gastos Mensais
   totalLiters: number;
   totalRefuels: number;
   avgUnitPrice: number;

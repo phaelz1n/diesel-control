@@ -414,11 +414,18 @@ export default function DashboardPage() {
         ) : kpis ? (
           <>
             <KPICard
-              title="Gasto Total"
-              value={formatCurrency(kpis.totalValue)}
+              title="Saída de Caixa (NFs + Vibra)"
+              value={formatCurrency(kpis.totalSpent)}
               icon={DollarSign}
+              color="#ef4444"
+              subtitle="Custo financeiro real"
+            />
+            <KPICard
+              title="Custo de Consumo"
+              value={formatCurrency(kpis.totalValue)}
+              icon={BarChart3}
               color="#3b82f6"
-              subtitle="No período selecionado"
+              subtitle="Baseado em abastecimentos"
             />
             <KPICard
               title="Litros Abastecidos"
@@ -431,7 +438,6 @@ export default function DashboardPage() {
               value={formatNumber(kpis.totalRefuels, 0)}
               icon={Fuel}
               color="#f59e0b"
-              subtitle="Transações"
             />
             <KPICard
               title="Preço Médio"
@@ -440,17 +446,10 @@ export default function DashboardPage() {
               color="#8b5cf6"
             />
             <KPICard
-              title="Média Geral"
+              title="Média Geral (Frota)"
               value={formatKmL(kpis.avgKmL)}
               icon={Activity}
               color="#06b6d4"
-              subtitle="Consumo da frota"
-            />
-            <KPICard
-              title="Custo Médio/Abast."
-              value={formatCurrency(kpis.avgCostPerRefuel)}
-              icon={BarChart3}
-              color="#ec4899"
             />
           </>
         ) : null}
