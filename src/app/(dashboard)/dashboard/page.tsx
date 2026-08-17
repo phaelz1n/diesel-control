@@ -345,18 +345,18 @@ export default function DashboardPage() {
         month: filters.month,
       };
 
-      const [kpiData, stationsData, vehiclesData, recentData, monthlyData] = await Promise.all([
+      const [kpiData, stationsData, vehiclesData, recentRefuelsData, monthlyData] = await Promise.all([
         getDashboardKPIs(refuelFilters),
         getStationStats(refuelFilters),
         getVehicleStats(refuelFilters),
-        getRefuels(refuelFilters, 6),
+        getRefuelsForPeriod(refuelFilters),
         getMonthlyStats(filters.year ?? currentYear),
       ]);
 
       setKpis(kpiData);
       setStationStats(stationsData);
       setVehicleStats(vehiclesData);
-      setRecentRefuels(recentData.items);
+      setRecentRefuels(recentRefuelsData.slice(0, 6));
       setMonthlyStats(monthlyData);
     } catch (err) {
       console.error('Dashboard load error:', err);
