@@ -10,7 +10,7 @@ import { getDashboardKPIs, getMonthlyStats, getStationStats, getVehicleStats, ge
 import { DashboardKPIs, MonthlyStats, StationStats, VehicleStats, Refuel, DashboardFilters } from '@/lib/types';
 import { formatCurrency, formatNumber, formatLiters, formatKmL, formatDateTime, calcVariation, formatVariation, cn } from '@/lib/utils';
 import { MONTHS, YEARS, MONTHS_SHORT } from '@/lib/constants';
-import { collection, getDocs, writeBatch, doc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db, COLLECTIONS } from '@/lib/firebase/firestore';
 import Link from 'next/link';
 
@@ -339,46 +339,9 @@ export default function DashboardPage() {
   const [recentRefuels, setRecentRefuels] = useState<Refuel[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [debugDb, setDebugDb] = useState<any>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const handleDeleteAll = async () => {
-    if (!confirm('Tem certeza que deseja apagar TODOS os 891 registros do banco de dados para importar do zero?')) return;
-    setIsDeleting(true);
-    try {
-      const snap = await getDocs(collection(db, COLLECTIONS.REFUELS));
-      let batch = writeBatch(db);
-      let count = 0;
-      for (const d of snap.docs) {
-        batch.delete(d.ref);
-        count++;
-        if (count % 500 === 0) {
-          await batch.commit();
-          batch = writeBatch(db);
-        }
-      }
-      if (count % 500 !== 0) {
-        await batch.commit();
-      }
-      alert('Banco limpo com sucesso! Agora você pode fazer a importação novamente.');
-      window.location.reload();
-    } catch (e) {
-      alert('Erro ao apagar: ' + String(e));
-    }
-    setIsDeleting(false);
-  };
 
   const loadData = useCallback(async () => {
     try {
-      // DEBUG: Count all refuels by month
-      const snap = await getDocs(collection(db, COLLECTIONS.REFUELS));
-      const months: any = {};
-      snap.forEach(d => {
-        const m = d.data().month || 'NO_MONTH';
-        months[m] = (months[m] || 0) + 1;
-      });
-      setDebugDb(months);
-
       const refuelFilters = {
         year: filters.year,
         month: filters.month,
@@ -431,25 +394,6 @@ export default function DashboardPage() {
             {monthLabel} {filters.year} · Visão gerencial
           </p>
         </div>
-
-        {debugDb && (
-          <div className="bg-red-900/50 border border-red-500 text-white p-4 rounded-xl mb-4 font-mono text-sm">
-            <strong>DEBUG BANCO DE DADOS:</strong><br/>
-            Total de registros por mês em todo o banco:<br/>
-            {JSON.stringify(debugDb, null, 2)}
-            
-            <div className="mt-4 pt-4 border-t border-red-500">
-              <p className="mb-2">Parece que os dados estão espalhados por todos os meses devido ao bug do navegador.</p>
-              <button 
-                onClick={handleDeleteAll}
-                disabled={isDeleting}
-                className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded font-bold"
-              >
-                {isDeleting ? 'Apagando...' : 'APAGAR TUDO PARA IMPORTAR DO ZERO'}
-              </button>
-            </div>
-          </div>
-        )}
 
         <div className="flex items-center gap-3">
           <FilterBar filters={filters} onChange={setFilters} />
