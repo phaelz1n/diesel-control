@@ -347,9 +347,19 @@ export default function DashboardPage() {
     setIsDeleting(true);
     try {
       const snap = await getDocs(collection(db, COLLECTIONS.REFUELS));
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
+      let batch = writeBatch(db);
+      let count = 0;
+      for (const d of snap.docs) {
+        batch.delete(d.ref);
+        count++;
+        if (count % 500 === 0) {
+          await batch.commit();
+          batch = writeBatch(db);
+        }
+      }
+      if (count % 500 !== 0) {
+        await batch.commit();
+      }
       alert('Banco limpo com sucesso! Agora você pode fazer a importação novamente.');
       window.location.reload();
     } catch (e) {

@@ -18,12 +18,11 @@ import { calcTotalValue } from '@/lib/utils';
 // MONTHLY EXPENSES
 // ============================================================
 export async function getMonthlyExpenses(competence?: string): Promise<MonthlyExpense[]> {
-  const constraints = competence
-    ? [where('competence', '==', competence), orderBy('dueDate')]
-    : [orderBy('competence', 'desc'), orderBy('dueDate')];
+  const constraints = competence ? [where('competence', '==', competence)] : [];
   const q = query(collection(db, COLLECTIONS.MONTHLY_EXPENSES), ...constraints);
   const snapshot = await getDocs(q);
-  return serializeQuerySnapshot<MonthlyExpense>(snapshot);
+  const items = serializeQuerySnapshot<MonthlyExpense>(snapshot);
+  return items.sort((a, b) => b.dueDate.getTime() - a.dueDate.getTime());
 }
 
 export async function createMonthlyExpense(
@@ -60,12 +59,11 @@ export async function deleteMonthlyExpense(id: string): Promise<void> {
 // VIBRA ORDERS
 // ============================================================
 export async function getVibraOrders(competence?: string): Promise<VibraOrder[]> {
-  const constraints = competence
-    ? [where('competence', '==', competence), orderBy('issueDate')]
-    : [orderBy('competence', 'desc'), orderBy('issueDate')];
+  const constraints = competence ? [where('competence', '==', competence)] : [];
   const q = query(collection(db, COLLECTIONS.VIBRA_ORDERS), ...constraints);
   const snapshot = await getDocs(q);
-  return serializeQuerySnapshot<VibraOrder>(snapshot);
+  const items = serializeQuerySnapshot<VibraOrder>(snapshot);
+  return items.sort((a, b) => b.issueDate.getTime() - a.issueDate.getTime());
 }
 
 export async function createVibraOrder(
