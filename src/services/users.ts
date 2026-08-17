@@ -17,6 +17,8 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
 } from 'firebase/auth';
+import { initializeApp, getApps } from 'firebase/app';
+import { firebaseConfig } from '@/lib/firebase/config';
 import { db, COLLECTIONS, serializeQuerySnapshot, serializeDoc } from '@/lib/firebase/firestore';
 import { AppUser, UserRole } from '@/lib/types';
 
@@ -48,9 +50,16 @@ export async function createUser(
   role: UserRole,
   adminUid: string
 ): Promise<string> {
-  const auth = getAuth();
-  const credential = await createUserWithEmailAndPassword(auth, email, password);
+  // Use a secondary app instance so we don't log out the current admin
+  const secondaryApp = getApps().find(app => app.name === 'SecondaryApp') 
+    || initializeApp(firebaseConfig, 'SecondaryApp');
+  
+  const secondaryAuth = getAuth(secondaryApp);
+  const credential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
   const uid = credential.user.uid;
+  
+  // Sign out of the secondary app immediately so the session doesn't linger
+  await secondaryAuth.signOut();
 
   await setDoc(doc(db, COLLECTIONS.USERS, uid), {
     uid,

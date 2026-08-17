@@ -262,6 +262,25 @@ export interface MonthlyStats {
   avgKmL: number;
 }
 
+export interface DailyStats {
+  date: string;           // YYYY-MM-DD
+  dayLabel: string;       // "01", "02", etc.
+  totalValue: number;
+  totalLiters: number;
+  totalRefuels: number;
+  avgUnitPrice: number;
+  avgKmL: number;
+}
+
+export interface YearlyStats {
+  year: number;           // YYYY
+  totalValue: number;
+  totalLiters: number;
+  totalRefuels: number;
+  avgUnitPrice: number;
+  avgKmL: number;
+}
+
 export interface StationStats {
   stationId: string;
   stationName: string;

@@ -17,7 +17,7 @@ import {
   QueryConstraint,
 } from 'firebase/firestore';
 import { db, COLLECTIONS, serializeDoc, serializeQuerySnapshot } from '@/lib/firebase/firestore';
-import { Refuel, RefuelFilters, DashboardKPIs, MonthlyStats, StationStats, VehicleStats } from '@/lib/types';
+import { Refuel, RefuelFilters, DashboardKPIs, MonthlyStats, StationStats, VehicleStats, DailyStats, YearlyStats } from '@/lib/types';
 import { toYearMonth, calcTotalValue, calcKmTraveled, calcAvgKmL } from '@/lib/utils';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 
@@ -323,3 +323,76 @@ export async function getVehicleStats(filters: RefuelFilters): Promise<VehicleSt
     .map((v) => ({ ...v, avgKmL: v.totalLiters > 0 ? v.totalKm / v.totalLiters : 0 }))
     .sort((a, b) => b.totalValue - a.totalValue);
 }
+
+// ============================================================
+// DAILY STATS
+// ============================================================
+export async function getDailyStats(month: string, filters: Omit<RefuelFilters, 'month' | 'year'> = {}): Promise<DailyStats[]> {
+  const refuels = await getRefuelsForPeriod({ ...filters, month });
+
+  const map = new Map<string, Refuel[]>();
+  for (const r of refuels) {
+    const d = new Date(r.date);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const list = map.get(dateStr) ?? [];
+    list.push(r);
+    map.set(dateStr, list);
+  }
+
+  const [y, m] = month.split('-');
+  const daysInMonth = new Date(Number(y), Number(m), 0).getDate();
+
+  return Array.from({ length: daysInMonth }, (_, i) => {
+    const day = String(i + 1).padStart(2, '0');
+    const dateStr = `${month}-${day}`;
+    const rList = map.get(dateStr) ?? [];
+    
+    const totalValue = rList.reduce((s, r) => s + r.totalValue, 0);
+    const totalLiters = rList.reduce((s, r) => s + r.liters, 0);
+    const totalKm = rList.reduce((s, r) => s + r.kmTraveled, 0);
+    
+    return {
+      date: dateStr,
+      dayLabel: day,
+      totalValue,
+      totalLiters,
+      totalRefuels: rList.length,
+      avgUnitPrice: totalLiters > 0 ? totalValue / totalLiters : 0,
+      avgKmL: totalLiters > 0 ? totalKm / totalLiters : 0,
+    };
+  });
+}
+
+// ============================================================
+// YEARLY STATS
+// ============================================================
+export async function getYearlyStats(filters: RefuelFilters = {}): Promise<YearlyStats[]> {
+  const refuels = await getRefuelsForPeriod(filters);
+
+  const map = new Map<number, Refuel[]>();
+  for (const r of refuels) {
+    const y = r.year;
+    const list = map.get(y) ?? [];
+    list.push(r);
+    map.set(y, list);
+  }
+
+  const years = Array.from(map.keys()).sort();
+  
+  return years.map(year => {
+    const rList = map.get(year) ?? [];
+    const totalValue = rList.reduce((s, r) => s + r.totalValue, 0);
+    const totalLiters = rList.reduce((s, r) => s + r.liters, 0);
+    const totalKm = rList.reduce((s, r) => s + r.kmTraveled, 0);
+    
+    return {
+      year,
+      totalValue,
+      totalLiters,
+      totalRefuels: rList.length,
+      avgUnitPrice: totalLiters > 0 ? totalValue / totalLiters : 0,
+      avgKmL: totalLiters > 0 ? totalKm / totalLiters : 0,
+    };
+  });
+}
+
