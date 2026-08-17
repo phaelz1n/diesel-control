@@ -6,7 +6,7 @@ import {
   DollarSign, Droplets, Fuel, TrendingUp, Activity, BarChart3,
   RefreshCw, ChevronRight, AlertTriangle, Calendar,
 } from 'lucide-react';
-import { getDashboardKPIs, getMonthlyStats, getStationStats, getVehicleStats, getRefuels } from '@/services/refuels';
+import { getDashboardKPIs, getMonthlyStats, getStationStats, getVehicleStats, getRefuels, getRefuelsForPeriod } from '@/services/refuels';
 import { DashboardKPIs, MonthlyStats, StationStats, VehicleStats, Refuel, DashboardFilters } from '@/lib/types';
 import { formatCurrency, formatNumber, formatLiters, formatKmL, formatDateTime, calcVariation, formatVariation, cn } from '@/lib/utils';
 import { MONTHS, YEARS, MONTHS_SHORT } from '@/lib/constants';
