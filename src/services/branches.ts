@@ -40,7 +40,7 @@ export async function getBranchById(id: string): Promise<Branch | null> {
 // CREATE BRANCH
 // ============================================================
 export async function createBranch(
-  data: Omit<Branch, 'id' | 'createdAt' | 'updatedAt' | 'normalizedName'>,
+  data: Omit<Branch, 'id' | 'createdAt' | 'updatedAt' | 'normalizedName' | 'createdBy' | 'updatedBy'>,
   userId: string
 ): Promise<string> {
   const docRef = await addDoc(collection(db, COLLECTIONS.BRANCHES), {
@@ -59,7 +59,7 @@ export async function createBranch(
 // ============================================================
 export async function updateBranch(
   id: string,
-  data: Partial<Omit<Branch, 'id' | 'createdAt' | 'updatedAt' | 'normalizedName'>>,
+  data: Partial<Omit<Branch, 'id' | 'createdAt' | 'updatedAt' | 'normalizedName' | 'createdBy' | 'updatedBy'>>,
   userId: string
 ): Promise<void> {
   const updates: Record<string, unknown> = { ...data };
