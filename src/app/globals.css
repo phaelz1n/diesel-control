@@ -1,0 +1,229 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+:root {
+  /* Brand colors */
+  --brand-50: #eff6ff;
+  --brand-100: #dbeafe;
+  --brand-400: #60a5fa;
+  --brand-500: #3b82f6;
+  --brand-600: #2563eb;
+  --brand-700: #1d4ed8;
+  --brand-900: #1e3a8a;
+
+  /* Fuel/diesel accent */
+  --accent-amber: #f59e0b;
+  --accent-green: #10b981;
+  --accent-red: #ef4444;
+  --accent-purple: #8b5cf6;
+}
+
+/* Dark mode (default) */
+:root, .dark {
+  --bg-primary: #0a0f1e;
+  --bg-secondary: #0f1629;
+  --bg-card: #111827;
+  --bg-card-hover: #1a2235;
+  --bg-sidebar: #0d1424;
+  --border: #1f2d4a;
+  --border-subtle: #162039;
+
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+
+  --ring: rgba(59, 130, 246, 0.4);
+}
+
+/* Light mode override */
+.light {
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --bg-sidebar: #1e293b;
+  --border: #e2e8f0;
+  --border-subtle: #f1f5f9;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* ============================================================ */
+/* SCROLLBAR */
+/* ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e3a5f;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2563eb;
+}
+
+/* ============================================================ */
+/* TAILWIND LAYER */
+/* ============================================================ */
+@layer base {
+  * {
+    @apply border-border;
+  }
+}
+
+@layer components {
+  /* KPI Cards */
+  .kpi-card {
+    @apply rounded-2xl p-6 border transition-all duration-200;
+    background: var(--bg-card);
+    border-color: var(--border);
+  }
+  .kpi-card:hover {
+    background: var(--bg-card-hover);
+    border-color: rgba(59, 130, 246, 0.3);
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 4px 24px rgba(0,0,0,0.2);
+  }
+
+  /* Glass effect for sidebar */
+  .glass {
+    background: rgba(15, 22, 41, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Status badges */
+  .badge-pending { @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20; }
+  .badge-paid    { @apply bg-green-500/10 text-green-400 border border-green-500/20; }
+  .badge-overdue { @apply bg-red-500/10 text-red-400 border border-red-500/20; }
+  .badge-partial { @apply bg-blue-500/10 text-blue-400 border border-blue-500/20; }
+  .badge-active  { @apply bg-green-500/10 text-green-400 border border-green-500/20; }
+  .badge-inactive{ @apply bg-slate-500/10 text-slate-400 border border-slate-500/20; }
+  .badge-maintenance { @apply bg-orange-500/10 text-orange-400 border border-orange-500/20; }
+
+  /* Data table */
+  .data-table th {
+    @apply text-xs font-semibold uppercase tracking-wider;
+    color: var(--text-secondary);
+  }
+  .data-table tr {
+    border-color: var(--border-subtle);
+  }
+  .data-table tbody tr:hover {
+    background: var(--bg-card-hover);
+  }
+}
+
+/* ============================================================ */
+/* ANIMATIONS */
+/* ============================================================ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.25s ease forwards;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-card) 25%,
+    var(--bg-card-hover) 50%,
+    var(--bg-card) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* ============================================================ */
+/* INPUT OVERRIDES */
+/* ============================================================ */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  cursor: pointer;
+}
+
+/* ============================================================ */
+/* CHART CONTAINER */
+/* ============================================================ */
+.chart-container {
+  min-height: 280px;
+}
+
+/* ============================================================ */
+/* SIDEBAR NAV ITEM */
+/* ============================================================ */
+.nav-item {
+  @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer;
+  color: var(--text-secondary);
+}
+.nav-item:hover {
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--text-primary);
+}
+.nav-item.active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+
+/* ============================================================ */
+/* PAGE HEADER */
+/* ============================================================ */
+.page-container {
+  @apply max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6;
+}

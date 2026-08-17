@@ -1,0 +1,133 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================================
+    // HELPER FUNCTIONS
+    // ============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function getRole() {
+      return getUserData().role;
+    }
+
+    function isActive() {
+      return getUserData().active == true;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && isActive() && getRole() == 'admin';
+    }
+
+    function isOperational() {
+      return isAuthenticated() && isActive() && (getRole() == 'admin' || getRole() == 'operational');
+    }
+
+    function isAnyUser() {
+      return isAuthenticated() && isActive();
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // ============================================================
+    // USERS
+    // ============================================================
+    match /users/{uid} {
+      allow read: if isAnyUser();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || isOwner(uid); // Usuário pode atualizar próprio perfil
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // BRANCHES (FILIAIS)
+    // ============================================================
+    match /branches/{id} {
+      allow read: if isAnyUser();
+      allow create, update: if isOperational();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // VEHICLES
+    // ============================================================
+    match /vehicles/{id} {
+      allow read: if isAnyUser();
+      allow create, update: if isOperational();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // STATIONS (POSTOS)
+    // ============================================================
+    match /stations/{id} {
+      allow read: if isAnyUser();
+      allow create, update: if isOperational();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // REFUELS (ABASTECIMENTOS)
+    // ============================================================
+    match /refuels/{id} {
+      allow read: if isAnyUser();
+      allow create: if isOperational();
+      allow update: if isAdmin() || (isOperational() && resource.data.createdBy == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // MONTHLY EXPENSES
+    // ============================================================
+    match /monthlyExpenses/{id} {
+      allow read: if isAnyUser();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // VIBRA ORDERS
+    // ============================================================
+    match /vibraOrders/{id} {
+      allow read: if isAnyUser();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
+    // AUDIT LOGS — imutável após criação
+    // ============================================================
+    match /auditLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if isAnyUser();
+      allow update, delete: if false; // Logs são imutáveis
+    }
+
+    // ============================================================
+    // SETTINGS
+    // ============================================================
+    match /settings/{doc} {
+      allow read: if isAnyUser();
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // ALERTS
+    // ============================================================
+    match /alerts/{id} {
+      allow read: if isOperational();
+      allow create: if isOperational();
+      allow update: if isAdmin() || isOperational();
+      allow delete: if isAdmin();
+    }
+  }
+}
