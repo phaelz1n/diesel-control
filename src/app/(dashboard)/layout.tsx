@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   LayoutDashboard, Fuel, Car, MapPin, DollarSign, FileText,
   BarChart3, Bell, Settings, Users, ScrollText, LogOut,
-  ChevronLeft, ChevronRight, Upload, X, Menu,
+  ChevronLeft, ChevronRight, Upload, X, Menu, Sun, Moon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTheme } from 'next-themes';
+import Image from 'next/image';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { usePermissions } from '@/lib/hooks/usePermissions';
 import { toast } from 'sonner';
@@ -111,19 +113,29 @@ function Sidebar({ collapsed, onToggle, onClose, mobile }: SidebarProps) {
         style={{ borderColor: 'var(--border)' }}
       >
         {(!collapsed || mobile) && (
-          <Link href="/dashboard" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-md shadow-blue-500/30 group-hover:scale-110 transition-transform">
-              <Fuel size={16} className="text-white" />
-            </div>
-            <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-              DieselControl
-            </span>
+          <Link href="/dashboard" className="flex items-center group relative h-10 w-36 ml-2">
+            <Image
+              src="/logo-white.png"
+              alt="Logo Trans Pinho"
+              fill
+              sizes="144px"
+              className="object-contain object-left hidden dark:block"
+              priority
+            />
+            <Image
+              src="/logo-colored.png"
+              alt="Logo Trans Pinho"
+              fill
+              sizes="144px"
+              className="object-contain object-left block dark:hidden"
+              priority
+            />
           </Link>
         )}
         {collapsed && !mobile && (
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+          <Link href="/dashboard" className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center hover:scale-110 transition-transform">
             <Fuel size={16} className="text-white" />
-          </div>
+          </Link>
         )}
         {mobile ? (
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: 'var(--text-muted)' }}>
@@ -217,9 +229,16 @@ function Sidebar({ collapsed, onToggle, onClose, mobile }: SidebarProps) {
 // HEADER
 // ============================================================
 function Header({ onMobileMenuOpen }: { onMobileMenuOpen: () => void }) {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <header
-      className="h-16 flex items-center justify-between px-4 lg:px-6 border-b"
+      className="h-16 flex items-center justify-between px-4 lg:px-6 border-b shrink-0"
       style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}
     >
       <button
@@ -231,6 +250,16 @@ function Header({ onMobileMenuOpen }: { onMobileMenuOpen: () => void }) {
       </button>
       <div className="flex-1 lg:flex-none" />
       <div className="flex items-center gap-3">
+        {mounted && (
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+            title="Alternar tema"
+          >
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
+        )}
         <span
           className="text-xs px-2.5 py-1 rounded-lg"
           style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}

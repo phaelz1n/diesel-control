@@ -60,7 +60,8 @@ export default function AbastecimentosPage() {
       }
       setLastDocRef(lastDoc);
       setHasMore(items.length === PAGE_SIZE);
-    } catch {
+    } catch (err) {
+      console.error('Erro detalhado:', err);
       toast.error('Erro ao carregar abastecimentos.');
     } finally {
       setLoading(false);
@@ -90,7 +91,7 @@ export default function AbastecimentosPage() {
       }
       setRefuels((prev) => prev.filter((r) => r.id !== id));
       toast.success('Abastecimento excluído.');
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao excluir.');
     } finally {
       setDeletingId(null);

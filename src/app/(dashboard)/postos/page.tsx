@@ -27,7 +27,7 @@ export default function PostosPage() {
     setLoading(true);
     try {
       setStations(await getStations());
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao carregar postos.');
     } finally {
       setLoading(false);
@@ -54,7 +54,7 @@ export default function PostosPage() {
       }
       setStations((prev) => prev.filter((s) => s.id !== id));
       toast.success('Posto excluído.');
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao excluir.');
     } finally {
       setConfirmDelete(null);

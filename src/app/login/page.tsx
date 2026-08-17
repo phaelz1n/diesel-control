@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Fuel, Lock, Mail, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Fuel, Lock, Mail, AlertCircle, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { loginSchema, LoginFormData } from '@/lib/validations';
 
@@ -47,45 +47,42 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex" style={{ background: 'var(--bg-primary)' }}>
+    <div className="min-h-screen w-full flex bg-[var(--bg-primary)]">
       {/* Left Panel — Branding */}
-      <div
-        className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 relative overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, #0d1b3e 0%, #0f2660 50%, #0a1a4e 100%)' }}
-      >
-        {/* Background decoration */}
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            backgroundImage: `radial-gradient(circle at 20% 50%, #3b82f6 0%, transparent 50%),
-                              radial-gradient(circle at 80% 20%, #8b5cf6 0%, transparent 40%)`,
-          }}
-        />
-        <div className="absolute inset-0" style={{
-          backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%233b82f6\' fill-opacity=\'0.03\'%3E%3Ccircle cx=\'30\' cy=\'30\' r=\'2\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
+      <div className="hidden lg:flex lg:w-5/12 xl:w-1/2 flex-col justify-between relative overflow-hidden bg-gradient-to-br from-[#0a1a4e] via-[#0f2660] to-[#0d1b3e]" style={{ padding: '3.5rem' }}>
+        
+        {/* Background ambient light decorations */}
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-500/20 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/20 rounded-full blur-[120px]" />
+        
+        {/* Subtle grid pattern */}
+        <div className="absolute inset-0 opacity-10" style={{
+          backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'40\' height=\'40\' viewBox=\'0 0 40 40\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h40v40H0V0zm1 1h38v38H1V1z\' fill=\'%23ffffff\' fill-opacity=\'1\' fill-rule=\'evenodd\'/%3E%3C/svg%3E")',
         }} />
 
-        <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-16">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-              <Fuel size={20} className="text-white" />
-            </div>
-            <span className="text-xl font-bold text-white">DieselControl</span>
+        {/* Top Logo */}
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/30">
+            <Fuel size={24} className="text-white" />
           </div>
-
-          <div>
-            <h1 className="text-4xl font-bold text-white leading-tight mb-4">
-              Gestão inteligente<br />
-              <span className="gradient-text">de combustível</span>
-            </h1>
-            <p className="text-blue-200/70 text-lg leading-relaxed max-w-md">
-              Controle abastecimentos, analise consumo da frota e tome decisões baseadas em dados reais.
-            </p>
-          </div>
+          <span className="text-2xl font-extrabold text-white tracking-tight">DieselControl</span>
         </div>
 
-        {/* Stats */}
-        <div className="relative z-10 grid grid-cols-3 gap-4">
+        {/* Middle Value Prop */}
+        <div className="relative z-10 flex flex-col gap-6 max-w-xl my-auto">
+          <h1 className="text-4xl xl:text-5xl font-extrabold text-white leading-tight">
+            Gestão inteligente <br className="hidden xl:block" />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
+              de combustível
+            </span>
+          </h1>
+          <p className="text-blue-100/80 text-lg xl:text-xl leading-relaxed">
+            Controle abastecimentos, analise o consumo da sua frota em tempo real e tome decisões estratégicas baseadas em dados precisos.
+          </p>
+        </div>
+
+        {/* Bottom Stats Grid */}
+        <div className="relative z-10 grid grid-cols-3 gap-4 xl:gap-6 mt-12">
           {[
             { value: '432', label: 'Abastecimentos/mês' },
             { value: '27k L', label: 'Litros controlados' },
@@ -93,144 +90,127 @@ export default function LoginPage() {
           ].map((stat) => (
             <div
               key={stat.label}
-              className="rounded-2xl p-4 text-center"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+              className="rounded-2xl p-4 xl:p-5 flex flex-col items-center justify-center text-center bg-white/5 border border-white/10 backdrop-blur-sm transition-all hover:bg-white/10"
             >
-              <div className="text-2xl font-bold text-white">{stat.value}</div>
-              <div className="text-xs text-blue-200/60 mt-1">{stat.label}</div>
+              <div className="text-2xl xl:text-3xl font-black text-white tracking-tight">{stat.value}</div>
+              <div className="text-xs xl:text-sm text-blue-200 mt-2 font-medium">{stat.label}</div>
             </div>
           ))}
         </div>
       </div>
 
       {/* Right Panel — Login Form */}
-      <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
-        <div className="w-full max-w-md animate-fade-in">
+      <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 relative">
+        <div className="w-full max-w-[420px] flex flex-col animate-fade-in">
+          
           {/* Mobile logo */}
-          <div className="flex items-center gap-3 mb-10 lg:hidden">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center">
-              <Fuel size={18} className="text-white" />
+          <div className="flex items-center gap-3 mb-12 lg:hidden self-center">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg">
+              <Fuel size={20} className="text-white" />
             </div>
-            <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>DieselControl</span>
+            <span className="text-xl font-bold text-[var(--text-primary)]">DieselControl</span>
           </div>
 
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
+          <div className="flex flex-col gap-2 mb-10 text-center lg:text-left">
+            <h2 className="text-3xl font-bold text-[var(--text-primary)] tracking-tight">
               Bem-vindo de volta
             </h2>
-            <p style={{ color: 'var(--text-secondary)' }}>
+            <p className="text-[var(--text-secondary)] text-base">
               Entre com suas credenciais para acessar o sistema.
             </p>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+          <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6 w-full">
             {/* Root Error */}
             {errors.root && (
-              <div
-                className="flex items-center gap-3 rounded-xl p-4"
-                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
-              >
-                <AlertCircle size={18} className="text-red-400 shrink-0" />
-                <p className="text-sm text-red-400">{errors.root.message}</p>
+              <div className="flex items-start gap-3 rounded-xl p-4 bg-red-500/10 border border-red-500/20">
+                <AlertCircle size={20} className="text-red-500 shrink-0 mt-0.5" />
+                <p className="text-sm font-medium text-red-500">{errors.root.message}</p>
               </div>
             )}
 
-            {/* Email */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+            {/* Email Field */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-[var(--text-secondary)] ml-1">
                 E-mail
               </label>
-              <div className="relative">
-                <Mail
-                  size={16}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2"
-                  style={{ color: 'var(--text-muted)' }}
-                />
+              <div className="relative flex items-center">
+                <div className="absolute left-4 text-[var(--text-muted)]">
+                  <Mail size={18} />
+                </div>
                 <input
                   {...register('email')}
                   type="email"
                   placeholder="seu@email.com"
                   autoComplete="email"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl text-sm transition-all outline-none focus:ring-2"
-                  style={{
-                    background: 'var(--bg-card)',
-                    border: `1px solid ${errors.email ? '#ef4444' : 'var(--border)'}`,
-                    color: 'var(--text-primary)',
-                    '--tw-ring-color': 'var(--ring)',
-                  } as React.CSSProperties}
+                  className="w-full h-14 pr-4 rounded-xl text-sm outline-none transition-all duration-200 border bg-[var(--bg-card)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 hover:border-[var(--text-muted)]"
+                  style={{ borderColor: errors.email ? '#ef4444' : 'var(--border)', paddingLeft: '3rem' }}
                 />
               </div>
               {errors.email && (
-                <p className="text-xs text-red-400">{errors.email.message}</p>
+                <p className="text-xs font-medium text-red-500 ml-1">{errors.email.message}</p>
               )}
             </div>
 
-            {/* Password */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+            {/* Password Field */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-[var(--text-secondary)] ml-1">
                 Senha
               </label>
-              <div className="relative">
-                <Lock
-                  size={16}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2"
-                  style={{ color: 'var(--text-muted)' }}
-                />
+              <div className="relative flex items-center">
+                <div className="absolute left-4 text-[var(--text-muted)]">
+                  <Lock size={18} />
+                </div>
                 <input
                   {...register('password')}
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   autoComplete="current-password"
-                  className="w-full pl-10 pr-12 py-3 rounded-xl text-sm transition-all outline-none focus:ring-2"
-                  style={{
-                    background: 'var(--bg-card)',
-                    border: `1px solid ${errors.password ? '#ef4444' : 'var(--border)'}`,
-                    color: 'var(--text-primary)',
-                  } as React.CSSProperties}
+                  className="w-full h-14 pr-12 rounded-xl text-sm outline-none transition-all duration-200 border bg-[var(--bg-card)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 hover:border-[var(--text-muted)]"
+                  style={{ borderColor: errors.password ? '#ef4444' : 'var(--border)', paddingLeft: '3rem' }}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 rounded transition-colors hover:opacity-70"
-                  style={{ color: 'var(--text-muted)' }}
+                  className="absolute right-4 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors focus:outline-none"
                 >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
               {errors.password && (
-                <p className="text-xs text-red-400">{errors.password.message}</p>
+                <p className="text-xs font-medium text-red-500 ml-1">{errors.password.message}</p>
               )}
             </div>
 
-            {/* Submit */}
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 relative overflow-hidden"
-              style={{
-                background: isLoading
-                  ? 'rgba(37,99,235,0.5)'
-                  : 'linear-gradient(135deg, #2563eb, #3b82f6)',
-                boxShadow: isLoading ? 'none' : '0 4px 20px rgba(37,99,235,0.4)',
-              }}
+              className="mt-4 group w-full h-14 flex items-center justify-center gap-2 rounded-xl text-base font-bold text-white transition-all duration-300 relative overflow-hidden bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-600/25 hover:shadow-blue-500/40 hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
             >
               {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                <>
+                  <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24" fill="none">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                   </svg>
-                  Entrando...
-                </span>
+                  <span>Autenticando...</span>
+                </>
               ) : (
-                'Entrar'
+                <>
+                  <span>Acessar plataforma</span>
+                  <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+                </>
               )}
             </button>
           </form>
 
-          <p className="mt-8 text-center text-xs" style={{ color: 'var(--text-muted)' }}>
-            Sistema restrito. Solicite acesso ao administrador.
-          </p>
+          {/* Footer note */}
+          <div className="mt-8 pt-6 border-t border-[var(--border)] text-center">
+            <p className="text-xs text-[var(--text-muted)] font-medium">
+              Acesso restrito. Em caso de dúvidas, <br className="sm:hidden" /> solicite acesso ao administrador.
+            </p>
+          </div>
         </div>
       </div>
     </div>

@@ -44,7 +44,8 @@ export default function GastosMensaisPage() {
     setLoading(true);
     try {
       setExpenses(await getMonthlyExpenses(competence));
-    } catch {
+    } catch (err) {
+      console.error('Erro detalhado:', err);
       toast.error('Erro ao carregar gastos.');
     } finally {
       setLoading(false);
@@ -59,7 +60,7 @@ export default function GastosMensaisPage() {
       await deleteMonthlyExpense(id);
       setExpenses((prev) => prev.filter((e) => e.id !== id));
       toast.success('Gasto excluído.');
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao excluir.');
     } finally {
       setConfirmDelete(null);

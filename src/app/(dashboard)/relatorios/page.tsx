@@ -63,7 +63,7 @@ function ComparativoTab() {
       ]);
       setData1(d1);
       setData2(d2);
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao carregar comparativo.');
     } finally {
       setLoading(false);
@@ -188,7 +188,7 @@ function AnualTab() {
     setLoading(true);
     try {
       setStats(await getMonthlyStats(year));
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao carregar visão anual.');
     } finally {
       setLoading(false);

@@ -35,7 +35,7 @@ export default function VeiculosPage() {
     try {
       const data = await getVehicles();
       setVehicles(data);
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao carregar veículos.');
     } finally {
       setLoading(false);
@@ -64,7 +64,7 @@ export default function VeiculosPage() {
       }
       setVehicles((prev) => prev.filter((v) => v.id !== id));
       toast.success('Veículo excluído.');
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao excluir.');
     } finally {
       setConfirmDelete(null);

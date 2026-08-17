@@ -33,7 +33,7 @@ export default function VibraPage() {
       ]);
       setOrders(o);
       setSummary(s);
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao carregar dados Vibra.');
     } finally {
       setLoading(false);
@@ -48,7 +48,7 @@ export default function VibraPage() {
       await deleteVibraOrder(id);
       setOrders((prev) => prev.filter((o) => o.id !== id));
       toast.success('Pedido excluído.');
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao excluir.');
     } finally {
       setConfirmDelete(null);

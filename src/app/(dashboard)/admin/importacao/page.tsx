@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import {
   Upload, FileSpreadsheet, CheckCircle, AlertTriangle, X,
-  ArrowRight, Loader2, Eye, AlertCircle,
+  ArrowRight, Loader2, Eye, AlertCircle, Download,
 } from 'lucide-react';
 import { ImportRow, ImportResult } from '@/lib/types';
 import { batchCreate } from '@/lib/firebase/firestore';
@@ -120,6 +120,25 @@ export default function ImportacaoPage() {
     const f = e.dataTransfer.files[0];
     if (f) processFile(f);
   }, []);
+
+  const handleDownloadTemplate = () => {
+    const headers = [
+      'Data', 'Placa', 'Posto', 'Combustível', 'Litros', 
+      'Valor Unitário', 'Valor Total', 'Hodômetro Anterior', 
+      'Hodômetro Atual', 'Observação'
+    ];
+    
+    // Create dummy row matching the required columns
+    const dummyData = [
+      '15/08/2026 14:30', 'ABC-1234', 'Posto Ipiranga Centro', 
+      'Diesel S10', 150, 5.49, 823.50, 120000, 120500, 'Exemplo de preenchimento'
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, dummyData]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Modelo');
+    XLSX.writeFile(wb, 'modelo_importacao.csv');
+  };
 
   const processFile = async (f: File) => {
     setFile(f);
@@ -281,32 +300,44 @@ export default function ImportacaoPage() {
 
       {/* Step 1: Upload */}
       {step === 1 && (
-        <div
-          className="rounded-2xl border-2 border-dashed p-12 text-center transition-all cursor-pointer hover:border-blue-500/50 hover:bg-blue-500/5"
-          style={{ borderColor: 'var(--border)' }}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleFileDrop}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }}
-          />
-          <FileSpreadsheet size={48} className="mx-auto mb-4 text-blue-400/40" />
-          <p className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-            Arraste o arquivo ou clique para selecionar
-          </p>
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            Suporta .xlsx, .xls e .csv
-          </p>
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              onClick={handleDownloadTemplate}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors hover:bg-white/5"
+              style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+            >
+              <Download size={15} />
+              Baixar Modelo Padrão (CSV)
+            </button>
+          </div>
           <div
-            className="mt-6 inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white"
-            style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)' }}
+            className="rounded-2xl border-2 border-dashed p-12 text-center transition-all cursor-pointer hover:border-blue-500/50 hover:bg-blue-500/5"
+            style={{ borderColor: 'var(--border)' }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleFileDrop}
+            onClick={() => fileInputRef.current?.click()}
           >
-            <Upload size={16} /> Selecionar Arquivo
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }}
+            />
+            <FileSpreadsheet size={48} className="mx-auto mb-4 text-blue-400/40" />
+            <p className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+              Arraste o arquivo ou clique para selecionar
+            </p>
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              Suporta .xlsx, .xls e .csv
+            </p>
+            <div
+              className="mt-6 inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white"
+              style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)' }}
+            >
+              <Upload size={16} /> Selecionar Arquivo
+            </div>
           </div>
         </div>
       )}

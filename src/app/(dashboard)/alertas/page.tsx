@@ -132,7 +132,7 @@ export default function AlertasPage() {
         month: `${year}-${String(month).padStart(2, '0')}`,
       });
       setAlerts(detectAlerts(refuels));
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao carregar alertas.');
     } finally {
       setLoading(false);

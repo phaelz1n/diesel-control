@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 @import "tailwindcss";
+@source "../../src";
 
 :root {
   /* Brand colors */
@@ -50,11 +51,6 @@
   --text-muted: #94a3b8;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
 
 html {
   scroll-behavior: smooth;
@@ -92,58 +88,69 @@ body {
 /* ============================================================ */
 @layer base {
   * {
-    @apply border-border;
+    border-color: var(--border);
   }
 }
 
-@layer components {
-  /* KPI Cards */
-  .kpi-card {
-    @apply rounded-2xl p-6 border transition-all duration-200;
-    background: var(--bg-card);
-    border-color: var(--border);
-  }
-  .kpi-card:hover {
-    background: var(--bg-card-hover);
-    border-color: rgba(59, 130, 246, 0.3);
-    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 4px 24px rgba(0,0,0,0.2);
-  }
 
-  /* Glass effect for sidebar */
-  .glass {
-    background: rgba(15, 22, 41, 0.8);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-  }
+/* ============================================================ */
+/* CUSTOM COMPONENTS */
+/* ============================================================ */
+/* KPI Cards */
+.kpi-card {
+  border-radius: 1rem;
+  padding: 1.5rem;
+  border-width: 1px;
+  border-style: solid;
+  transition: all 200ms ease;
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+.kpi-card:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 4px 24px rgba(0,0,0,0.2);
+}
 
-  /* Gradient text */
-  .gradient-text {
-    background: linear-gradient(135deg, #60a5fa, #a78bfa);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
+/* Glass effect for sidebar */
+.glass {
+  background: rgba(15, 22, 41, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
 
-  /* Status badges */
-  .badge-pending { @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20; }
-  .badge-paid    { @apply bg-green-500/10 text-green-400 border border-green-500/20; }
-  .badge-overdue { @apply bg-red-500/10 text-red-400 border border-red-500/20; }
-  .badge-partial { @apply bg-blue-500/10 text-blue-400 border border-blue-500/20; }
-  .badge-active  { @apply bg-green-500/10 text-green-400 border border-green-500/20; }
-  .badge-inactive{ @apply bg-slate-500/10 text-slate-400 border border-slate-500/20; }
-  .badge-maintenance { @apply bg-orange-500/10 text-orange-400 border border-orange-500/20; }
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
 
-  /* Data table */
-  .data-table th {
-    @apply text-xs font-semibold uppercase tracking-wider;
-    color: var(--text-secondary);
-  }
-  .data-table tr {
-    border-color: var(--border-subtle);
-  }
-  .data-table tbody tr:hover {
-    background: var(--bg-card-hover);
-  }
+/* Status badges */
+.badge-pending { background-color: rgba(234, 179, 8, 0.1); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.2); }
+.badge-paid    { background-color: rgba(34, 197, 94, 0.1); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.2); }
+.badge-overdue { background-color: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
+.badge-partial { background-color: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2); }
+.badge-active  { background-color: rgba(34, 197, 94, 0.1); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.2); }
+.badge-inactive{ background-color: rgba(100, 116, 139, 0.1); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.2); }
+.badge-maintenance { background-color: rgba(249, 115, 22, 0.1); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.2); }
+
+/* Data table */
+.data-table th {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  padding: 0.75rem 1rem;
+}
+.data-table tr {
+  border-color: var(--border-subtle);
+}
+.data-table tbody tr:hover {
+  background: var(--bg-card-hover);
 }
 
 /* ============================================================ */
@@ -208,7 +215,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* SIDEBAR NAV ITEM */
 /* ============================================================ */
 .nav-item {
-  @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 150ms ease;
+  cursor: pointer;
   color: var(--text-secondary);
 }
 .nav-item:hover {
@@ -225,5 +240,23 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* PAGE HEADER */
 /* ============================================================ */
 .page-container {
-  @apply max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6;
+  max-width: 1536px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 1.5rem 1rem; /* py-6 px-4 */
+}
+@media (min-width: 640px) {
+  .page-container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+@media (min-width: 1024px) {
+  .page-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+.page-container > * + * {
+  margin-top: 1.5rem;
 }

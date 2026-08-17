@@ -29,7 +29,7 @@ export default function UsuariosPage() {
     setLoading(true);
     try {
       setUsers(await getUsers());
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao carregar usuários.');
     } finally {
       setLoading(false);
@@ -50,7 +50,7 @@ export default function UsuariosPage() {
       );
       setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, active: !u.active } : u));
       toast.success(`Usuário ${user.active ? 'desativado' : 'ativado'}.`);
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao atualizar status.');
     }
   };
@@ -59,7 +59,7 @@ export default function UsuariosPage() {
     try {
       await resetUserPassword(user.email);
       toast.success(`E-mail de redefinição enviado para ${user.email}.`);
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao enviar e-mail.');
     }
   };

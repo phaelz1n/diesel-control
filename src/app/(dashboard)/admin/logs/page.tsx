@@ -31,7 +31,7 @@ export default function LogsPage() {
     setLoading(true);
     try {
       setLogs(await getAuditLogs(filters, 200));
-    } catch {
+    } catch (err) { console.error("Erro detalhado:", err);
       toast.error('Erro ao carregar logs.');
     } finally {
       setLoading(false);
