@@ -2,15 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Settings2, Bell, Building2, Plus, Edit2, Trash2, Save, X, Tag } from 'lucide-react';
+import { Settings2, Bell, Building2, Plus, Edit2, Trash2, Save, X, Tag, AlertTriangle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
 import { usePermissions } from '@/lib/hooks/usePermissions';
 import { getSettings, updateSettings } from '@/services/settings';
 import { getBranches, createBranch, updateBranch, deleteBranch } from '@/services/branches';
+import { wipeDatabase } from '@/services/database';
 import { AppSettings, Branch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-type Tab = 'geral' | 'alertas' | 'filiais';
+type Tab = 'geral' | 'alertas' | 'filiais' | 'perigo';
 
 export default function ConfiguracoesPage() {
   const { profile } = useAuth();
@@ -47,6 +48,10 @@ export default function ConfiguracoesPage() {
     phone: '',
     active: true,
   });
+
+  // Danger Zone State
+  const [wipeConfirmWord, setWipeConfirmWord] = useState('');
+  const [isWiping, setIsWiping] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -163,6 +168,26 @@ export default function ConfiguracoesPage() {
     }
   };
 
+  // ==========================================
+  // WIPE DATABASE LOGIC
+  // ==========================================
+  const handleWipeDatabase = async () => {
+    if (wipeConfirmWord !== 'APAGAR TUDO') return;
+    if (!profile) return;
+    
+    setIsWiping(true);
+    try {
+      await wipeDatabase(profile.uid, profile.email, profile.name);
+      toast.success('Banco de dados completamente apagado com sucesso!');
+      setWipeConfirmWord('');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao apagar banco de dados.');
+    } finally {
+      setIsWiping(false);
+    }
+  };
+
   return (
     <div className="page-container animate-fade-in space-y-6">
       <div>
@@ -191,6 +216,12 @@ export default function ConfiguracoesPage() {
           className={cn('px-4 py-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2', activeTab === 'filiais' ? 'border-blue-500 text-blue-500' : 'border-transparent text-gray-500 hover:text-gray-300')}
         >
           <Building2 size={16} /> Filiais
+        </button>
+        <button
+          onClick={() => setActiveTab('perigo')}
+          className={cn('px-4 py-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2', activeTab === 'perigo' ? 'border-red-500 text-red-500' : 'border-transparent text-gray-500 hover:text-red-400')}
+        >
+          <AlertTriangle size={16} /> Zona de Perigo
         </button>
       </div>
 
@@ -353,6 +384,61 @@ export default function ConfiguracoesPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab Content: ZONA DE PERIGO */}
+      {activeTab === 'perigo' && (
+        <div className="space-y-6 max-w-2xl">
+          <div className="p-6 rounded-2xl border-2 border-red-500/30 bg-red-500/5 space-y-4">
+            <div className="flex items-center gap-3 text-red-500 mb-4">
+              <AlertTriangle size={32} />
+              <div>
+                <h2 className="text-xl font-bold">Zona de Perigo</h2>
+                <p className="text-sm text-red-500/80">Ações extremas e irreversíveis.</p>
+              </div>
+            </div>
+            
+            <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+              Esta ação irá <strong>apagar permanentemente</strong> todos os dados do sistema, incluindo:
+            </p>
+            <ul className="list-disc pl-5 text-sm space-y-1 text-red-400/80">
+              <li>Abastecimentos e Despesas</li>
+              <li>Filiais e Veículos</li>
+              <li>Postos e Pedidos</li>
+              <li>Alertas gerados</li>
+            </ul>
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              Apenas as configurações de base e os usuários cadastrados não serão afetados.
+            </p>
+
+            <div className="mt-6 p-4 rounded-xl border border-red-500/20 bg-white/5 space-y-3">
+              <label className="text-sm font-semibold block" style={{ color: 'var(--text-primary)' }}>
+                Para confirmar a exclusão, digite a frase: <span className="text-red-500 select-all">APAGAR TUDO</span>
+              </label>
+              <input
+                type="text"
+                value={wipeConfirmWord}
+                onChange={(e) => setWipeConfirmWord(e.target.value)}
+                placeholder="Digite a confirmação..."
+                className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              />
+              <button
+                onClick={handleWipeDatabase}
+                disabled={wipeConfirmWord !== 'APAGAR TUDO' || isWiping}
+                className={cn(
+                  'w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all text-white',
+                  wipeConfirmWord === 'APAGAR TUDO' && !isWiping
+                    ? 'bg-red-600 hover:bg-red-500 shadow-[0_2px_15px_rgba(220,38,38,0.5)]'
+                    : 'bg-red-600/30 cursor-not-allowed opacity-50'
+                )}
+              >
+                {isWiping ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                {isWiping ? 'Apagando banco de dados...' : 'Apagar Todos os Dados'}
+              </button>
+            </div>
           </div>
         </div>
       )}
