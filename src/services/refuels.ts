@@ -73,11 +73,12 @@ export async function getRefuels(
 export async function getRefuelsForPeriod(filters: RefuelFilters): Promise<Refuel[]> {
   const constraints: QueryConstraint[] = [
     ...buildConstraints(filters),
-    orderBy('date', 'desc'),
   ];
   const q = query(collection(db, COLLECTIONS.REFUELS), ...constraints);
   const snapshot = await getDocs(q);
-  return serializeQuerySnapshot<Refuel>(snapshot);
+  const items = serializeQuerySnapshot<Refuel>(snapshot);
+  // Sort in memory to avoid Firestore composite index requirement on month + date
+  return items.sort((a, b) => b.date.getTime() - a.date.getTime());
 }
 
 // ============================================================
