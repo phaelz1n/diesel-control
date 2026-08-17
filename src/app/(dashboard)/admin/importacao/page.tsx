@@ -185,7 +185,7 @@ export default function ImportacaoPage() {
       if (!date) errors.push('Data inválida');
       if (!mapped.vehiclePlate) errors.push('Placa obrigatória');
       if (liters <= 0) errors.push('Litros inválidos');
-      if (unitPrice <= 0) errors.push('Valor unitário inválido');
+      if (unitPrice < 0) errors.push('Valor unitário inválido');
       if (currOdo < prevOdo) warnings.push('Hodômetro atual < anterior');
 
       const totalValue = calcTotalValue(liters, unitPrice);
