@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
 import { toast } from 'sonner';
 import {
   Upload, FileSpreadsheet, CheckCircle, AlertTriangle, X,
@@ -142,6 +143,33 @@ export default function ImportacaoPage() {
 
   const processFile = async (f: File) => {
     setFile(f);
+    
+    if (f.name.toLowerCase().endsWith('.csv')) {
+      Papa.parse(f, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const rows = results.data as Record<string, unknown>[];
+          if (rows.length === 0) {
+            toast.error('Arquivo vazio ou formato não reconhecido.');
+            return;
+          }
+          const hdrs = Object.keys(rows[0]);
+          setHeaders(hdrs);
+          setRawRows(rows);
+
+          const autoMap: Record<string, string> = {};
+          for (const h of hdrs) {
+            const field = detectColumn(h);
+            if (field) autoMap[h] = field;
+          }
+          setColumnMap(autoMap);
+          setStep(2);
+        }
+      });
+      return;
+    }
+
     const buffer = await f.arrayBuffer();
     const wb = XLSX.read(buffer, { type: 'array' });
     const ws = wb.Sheets[wb.SheetNames[0]];
