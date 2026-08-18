@@ -13,109 +13,13 @@ import { MONTHS, YEARS, MONTHS_SHORT } from '@/lib/constants';
 import { collection, getDocs } from 'firebase/firestore';
 import { db, COLLECTIONS } from '@/lib/firebase/firestore';
 import { exportToPDF } from '@/lib/utils/exportUtils';
+import { KPICard } from '@/components/ui/KPICard';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { FilterBar } from '@/components/filters/FilterBar';
 import Link from 'next/link';
 
 // Lazy load charts (ApexCharts requires browser)
 const ApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
-
-// ============================================================
-// KPI CARD
-// ============================================================
-interface KPICardProps {
-  title: string;
-  value: string;
-  icon: React.ElementType;
-  color: string;
-  subtitle?: string;
-  trend?: number;
-}
-
-function KPICard({ title, value, icon: Icon, color, subtitle, trend }: KPICardProps) {
-  return (
-    <div className="kpi-card group">
-      <div className="flex items-start justify-between mb-4">
-        <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center shadow-lg"
-          style={{ background: `${color}18`, border: `1px solid ${color}30` }}
-        >
-          <Icon size={20} style={{ color }} />
-        </div>
-        {trend !== undefined && (
-          <span
-            className={cn(
-              'text-xs font-semibold px-2 py-0.5 rounded-full',
-              trend >= 0 ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
-            )}
-          >
-            {formatVariation(trend)}
-          </span>
-        )}
-      </div>
-      <div>
-        <p className="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{value}</p>
-        <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>{title}</p>
-        {subtitle && <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{subtitle}</p>}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// SKELETON
-// ============================================================
-function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('skeleton', className)} />;
-}
-
-// ============================================================
-// FILTER BAR
-// ============================================================
-interface FilterBarProps {
-  filters: DashboardFilters;
-  onChange: (f: DashboardFilters) => void;
-}
-
-function FilterBar({ filters, onChange }: FilterBarProps) {
-  const currentYear = new Date().getFullYear();
-
-  const selectStyle = {
-    background: 'var(--bg-card)',
-    border: '1px solid var(--border)',
-    color: 'var(--text-primary)',
-  } as React.CSSProperties;
-
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        <Calendar size={15} />
-        <span>Período:</span>
-      </div>
-      <select
-        value={filters.year ?? currentYear}
-        onChange={(e) => onChange({ ...filters, year: Number(e.target.value), month: undefined })}
-        className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer"
-        style={selectStyle}
-      >
-        {YEARS.map((y) => (
-          <option key={y} value={y}>{y}</option>
-        ))}
-      </select>
-      <select
-        value={filters.month ?? ''}
-        onChange={(e) => onChange({ ...filters, month: e.target.value || undefined })}
-        className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer"
-        style={selectStyle}
-      >
-        <option value="">Todos os meses</option>
-        {MONTHS.map((m) => (
-          <option key={m.value} value={`${filters.year ?? currentYear}-${m.value}`}>
-            {m.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
 
 // ============================================================
 // CHART: GASTOS/LITROS MENSAIS
