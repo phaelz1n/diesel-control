@@ -64,7 +64,11 @@ export async function getVibraOrders(competence?: string): Promise<VibraOrder[]>
   const q = query(collection(db, COLLECTIONS.VIBRA_ORDERS), ...constraints);
   const snapshot = await getDocs(q);
   const items = serializeQuerySnapshot<VibraOrder>(snapshot);
-  return items.sort((a, b) => b.issueDate.getTime() - a.issueDate.getTime());
+  return items.sort((a, b) => {
+    const timeA = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+    const timeB = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+    return timeB - timeA;
+  });
 }
 
 export async function createVibraOrder(

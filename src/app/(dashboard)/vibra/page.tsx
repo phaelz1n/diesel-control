@@ -2,7 +2,23 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Droplets, DollarSign, Upload, Download, X, AlertTriangle } from 'lucide-react';
+import {
+  Plus,
+  Edit2,
+  Trash2,
+  Droplets,
+  DollarSign,
+  Upload,
+  Download,
+  X,
+  AlertTriangle,
+  Bug,
+  RefreshCw,
+  Database,
+  Info,
+  CheckCircle2,
+  ArrowRight,
+} from 'lucide-react';
 import {
   getVibraOrders,
   deleteVibraOrder,
@@ -107,6 +123,14 @@ const MONTH_NAME_MAP: Record<string, string> = {
   'DEZEMBRO': '12', 'DEZ': '12',
 };
 
+interface DebugLog {
+  id: string;
+  time: string;
+  type: 'info' | 'success' | 'warn' | 'error';
+  title: string;
+  details?: any;
+}
+
 export default function VibraPage() {
   const { isAdmin } = usePermissions();
   const { user } = useAuth();
@@ -119,6 +143,13 @@ export default function VibraPage() {
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [importing, setImporting] = useState(false);
+  
+  // Debug Panel State
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugTab, setDebugTab] = useState<'db' | 'logs'>('db');
+  const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
+  const [allDbOrders, setAllDbOrders] = useState<VibraOrder[] | null>(null);
+  const [loadingDbAll, setLoadingDbAll] = useState(false);
   
   // Modal state (Create & Edit)
   const [modalOpen, setModalOpen] = useState(false);
@@ -136,6 +167,34 @@ export default function VibraPage() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selYear, selMonth] = competence.split('-');
+
+  const addDebugLog = (type: DebugLog['type'], title: string, details?: any) => {
+    const time = new Date().toLocaleTimeString('pt-BR', { hour12: false });
+    setDebugLogs((prev) => [
+      { id: Math.random().toString(36).substring(7), time, type, title, details },
+      ...prev,
+    ]);
+  };
+
+  const loadAllDbOrders = useCallback(async () => {
+    setLoadingDbAll(true);
+    try {
+      addDebugLog('info', 'Consultando coleção vibraOrders sem filtro...');
+      const all = await getVibraOrders();
+      setAllDbOrders(all);
+      addDebugLog(
+        'success',
+        `Consulta concluída: ${all.length} documento(s) encontrado(s) no Firestore.`,
+        { total: all.length, amostra: all.slice(0, 3) }
+      );
+    } catch (err: any) {
+      console.error('Erro ao consultar banco geral:', err);
+      addDebugLog('error', 'Falha ao buscar todos os registros do Firestore', err?.message || err);
+      toast.error('Erro ao consultar banco de dados.');
+    } finally {
+      setLoadingDbAll(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -158,6 +217,10 @@ export default function VibraPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    loadAllDbOrders();
+  }, [loadAllDbOrders]);
+
   const handleDelete = async (id: string) => {
     if (confirmDelete !== id) {
       setConfirmDelete(id);
@@ -168,6 +231,7 @@ export default function VibraPage() {
       setOrders((prev) => prev.filter((o) => o.id !== id));
       toast.success('Pedido excluído.');
       load();
+      loadAllDbOrders();
     } catch (err) {
       console.error('Erro ao excluir:', err);
       toast.error('Erro ao excluir.');
@@ -187,6 +251,7 @@ export default function VibraPage() {
       toast.success(`${deletedCount} faturas de ${selMonth}/${selYear} removidas.`);
       setConfirmClearAll(false);
       load();
+      loadAllDbOrders();
     } catch (err) {
       console.error('Erro ao limpar período:', err);
       toast.error('Erro ao limpar faturas do período.');
@@ -251,10 +316,9 @@ export default function VibraPage() {
       const unitPrice = parseBRNumber(formData.unitPrice);
       const totalValue = +(liters * unitPrice).toFixed(2);
       
-      const issueDate = parseBRDate(formData.issueDate) || new Date();
-      const paymentDate = formData.paymentDate ? parseBRDate(formData.paymentDate) : undefined;
+      const issueDate = new Date(formData.issueDate + 'T12:00:00');
+      const paymentDate = formData.paymentDate ? new Date(formData.paymentDate + 'T12:00:00') : undefined;
       
-      // Determine competence based on paymentDate or issueDate
       const compDate = paymentDate || issueDate;
       const orderCompetence = `${compDate.getFullYear()}-${String(compDate.getMonth() + 1).padStart(2, '0')}`;
 
@@ -294,6 +358,7 @@ export default function VibraPage() {
 
       setModalOpen(false);
       load();
+      loadAllDbOrders();
     } catch (err) {
       console.error('Erro ao salvar pedido:', err);
       toast.error('Erro ao salvar pedido');
@@ -307,27 +372,39 @@ export default function VibraPage() {
     if (!file || !user) return;
 
     setImporting(true);
+    setShowDebug(true);
+    setDebugTab('logs');
+    addDebugLog('info', `Iniciando leitura do arquivo: ${file.name} (${file.size} bytes)...`);
+
     Papa.parse(file, {
       header: true,
       skipEmptyLines: 'greedy',
+      delimitersToGuess: [',', ';', '\t', '|'],
       complete: async (results: any) => {
         try {
+          addDebugLog('info', 'Arquivo CSV analisado pelo PapaParse', {
+            delimitador: results.meta.delimiter,
+            camposDetectados: results.meta.fields,
+            totalLinhasBrutas: results.data?.length,
+          });
+
           const rows = results.data as Record<string, any>[];
           if (!rows || rows.length === 0) {
+            addDebugLog('error', 'Arquivo vazio ou sem linhas de dados reconhecidas.');
             toast.error('Arquivo vazio ou formato não reconhecido.');
             return;
           }
 
-          const newOrders: Omit<VibraOrder, 'id' | 'createdAt' | 'updatedAt'>[] = [];
-          let currentMonthName = '';
+          const newOrders: Omit<VibraOrder, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy'>[] = [];
           const competencesEncountered = new Set<string>();
+          const skippedRows: any[] = [];
 
+          let rowIdx = 0;
           for (const row of rows) {
-            // Check first column value (could be "Janeiro", "Fevereiro", or an order number "4202207")
+            rowIdx++;
             const firstColKey = Object.keys(row)[0];
             const firstColVal = firstColKey ? String(row[firstColKey] || '').trim() : '';
 
-            // Check if first col or Mês column is a month name
             const rawMonth = getColValue(row, 'Mês', 'Mes', 'Competência', 'Competencia') || firstColVal;
             const upperMonth = normKey(rawMonth).toUpperCase();
             
@@ -335,36 +412,29 @@ export default function VibraPage() {
             for (const [mName, mCode] of Object.entries(MONTH_NAME_MAP)) {
               if (normKey(mName) === upperMonth) {
                 detectedMonthCode = mCode;
-                currentMonthName = mName;
                 break;
               }
             }
 
-            // Dates
             const emissaoStr = getColValue(row, 'Emissão', 'Emissao', 'Data Emissão', 'Data', 'DataEmissao');
             const pagamentoStr = getColValue(row, 'Pagamento', 'Data Pagamento', 'Vencimento', 'Data Vencimento', 'DataPagamento');
             const litrosStr = getColValue(row, 'Litros Pedidos', 'Litros', 'Volume', 'Qtd', 'Quantidade', 'LitrosPedidos');
             const unitPriceStr = getColValue(row, 'Vlr Unit (R$)', 'Vlr Unit', 'Valor Unitario', 'Valor Unitário', 'Preço/L', 'Preco/L', 'Preço', 'Preco');
             const totalValueStr = getColValue(row, 'Vlr Total', 'Valor Total', 'Total', 'Valor', 'VlrTotal');
             
-            // Order number / Invoice number
             let orderNumber = getColValue(row, 'Nº Pedido / NF', 'Nº Pedido', 'Pedido', 'Ordem', 'Numero Pedido', 'NF', 'Nota Fiscal', 'Nº NF');
-            // If first column was NOT a month name, but is numeric/alphanumeric digits (like "4202207"), use it as order number
             if (!orderNumber && firstColVal && !detectedMonthCode && /^\d+$/.test(firstColVal)) {
               orderNumber = firstColVal;
             }
 
             if (!emissaoStr && !pagamentoStr && !litrosStr) {
-              continue; // Skip invalid or empty row
+              skippedRows.push({ linha: rowIdx, motivo: 'Sem data nem litros', row });
+              continue;
             }
 
             const issueDate = parseBRDate(emissaoStr) || parseBRDate(pagamentoStr) || new Date();
             const paymentDate = parseBRDate(pagamentoStr) || undefined;
 
-            // Determine competence:
-            // 1. If payment date exists, use its YYYY-MM
-            // 2. Else if issue date exists, use its YYYY-MM
-            // 3. Else if month code was identified, combine with year
             let rowCompetence = competence;
             if (paymentDate) {
               rowCompetence = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
@@ -397,29 +467,40 @@ export default function VibraPage() {
               totalValue,
               orderNumber: orderNumber ? String(orderNumber).trim() : undefined,
               status: 'PAID',
-              createdBy: user.uid,
-              updatedBy: user.uid,
             });
           }
 
+          addDebugLog('info', `Processamento das linhas: ${newOrders.length} válidas, ${skippedRows.length} ignoradas.`, {
+            competenciasDetectadas: Array.from(competencesEncountered),
+            primeirasOrdens: newOrders.slice(0, 3),
+            linhasIgnoradasAmostra: skippedRows.slice(0, 3),
+          });
+
           if (newOrders.length > 0) {
-            await batchCreate(COLLECTIONS.VIBRA_ORDERS, newOrders, user.uid);
+            addDebugLog('info', `Gravando em lote (batchCreate) ${newOrders.length} registros no Firestore na coleção '${COLLECTIONS.VIBRA_ORDERS}'...`);
+            const createdCount = await batchCreate(COLLECTIONS.VIBRA_ORDERS, newOrders, user.uid);
+
+            addDebugLog('success', `Gravação no Firestore concluída com sucesso! ${createdCount} documentos inseridos.`, { totalInseridos: createdCount, competencias: Array.from(competencesEncountered) });
             
             const countMonths = competencesEncountered.size;
-            toast.success(
-              `${newOrders.length} pedidos Vibra importados em ${countMonths} ${
-                countMonths === 1 ? 'mês' : 'meses'
-              }!`
-            );
+            toast.success(`${createdCount} pedidos Vibra importados em ${countMonths} ${countMonths === 1 ? 'mês' : 'meses'}!`);
             
-            // If current competence wasn't among the imported, but there are imports, reload
+            const currentInImported = competencesEncountered.has(competence);
+            if (!currentInImported && competencesEncountered.size > 0) {
+              const firstComp = Array.from(competencesEncountered)[0];
+              toast.info(`Os dados foram importados para o período ${firstComp}. Use o seletor ou o Painel de Debug para visualizar.`, { duration: 6000 });
+            }
+            
             load();
+            loadAllDbOrders();
           } else {
+            addDebugLog('warn', 'Nenhum registro válido extraído do arquivo CSV.', { linhasBrutas: rows.slice(0, 5) });
             toast.error('Nenhum dado válido encontrado no CSV para importar.');
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error('Erro na importação:', err);
-          toast.error('Erro ao processar o arquivo CSV.');
+          addDebugLog('error', 'Exceção ao gravar dados no Firestore', { mensagem: err?.message || String(err), stack: err?.stack });
+          toast.error(`Erro ao processar o CSV: ${err?.message || 'Falha desconhecida'}`);
         } finally {
           setImporting(false);
           if (fileInputRef.current) fileInputRef.current.value = '';
@@ -427,11 +508,26 @@ export default function VibraPage() {
       },
       error: (err) => {
         console.error('Papa parse error:', err);
+        addDebugLog('error', 'Falha do analisador PapaParse', err);
         toast.error('Falha ao ler o arquivo CSV.');
         setImporting(false);
       },
     });
   };
+
+  const dbCompetenceBreakdown = (allDbOrders || []).reduce(
+    (acc, order) => {
+      const comp = order.competence || 'Sem competência';
+      if (!acc[comp]) {
+        acc[comp] = { count: 0, totalLiters: 0, totalValue: 0 };
+      }
+      acc[comp].count += 1;
+      acc[comp].totalLiters += order.liters || 0;
+      acc[comp].totalValue += order.totalValue || 0;
+      return acc;
+    },
+    {} as Record<string, { count: number; totalLiters: number; totalValue: number }>
+  );
 
   const selectStyle: React.CSSProperties = {
     background: 'var(--bg-card)',
@@ -440,12 +536,32 @@ export default function VibraPage() {
   };
 
   return (
-    <div className="page-container animate-fade-in">
+    <div className="page-container animate-fade-in space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Controle Vibra
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              Controle Vibra
+            </h1>
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all',
+                showDebug
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500'
+              )}
+              title="Abrir/Fechar painel de diagnóstico e debug do banco de dados"
+            >
+              <Bug size={13} className={showDebug ? 'text-amber-400' : 'text-slate-400'} />
+              <span>Diagnóstico DB</span>
+              {allDbOrders !== null && (
+                <span className="px-1.5 py-0.2 bg-black/40 rounded text-[10px]">
+                  {allDbOrders.length} no BD
+                </span>
+              )}
+            </button>
+          </div>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Pedidos e notas de combustível Vibra
           </p>
@@ -541,6 +657,252 @@ export default function VibraPage() {
           )}
         </div>
       </div>
+
+      {showDebug && (
+        <div
+          className="rounded-2xl border p-5 shadow-xl transition-all animate-fade-in"
+          style={{
+            background: 'linear-gradient(180deg, #0f172a 0%, #090d16 100%)',
+            borderColor: '#1e293b',
+          }}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                <Database size={18} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-100 flex items-center gap-2 text-sm sm:text-base">
+                  Painel de Diagnóstico & Debug (Firestore / CSV)
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Verifique se o banco de dados está reconhecendo os registros e analise logs de
+                  importação.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={loadAllDbOrders}
+                disabled={loadingDbAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600/20 border border-blue-500/40 text-blue-300 hover:bg-blue-600/30 transition-all"
+              >
+                <RefreshCw size={13} className={loadingDbAll ? 'animate-spin' : ''} />
+                {loadingDbAll ? 'Consultando...' : 'Atualizar Dados do Banco'}
+              </button>
+
+              <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+                <button
+                  onClick={() => setDebugTab('db')}
+                  className={cn(
+                    'px-3 py-1 rounded-md transition-all font-medium',
+                    debugTab === 'db'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  )}
+                >
+                  Banco de Dados ({allDbOrders?.length ?? '?'})
+                </button>
+                <button
+                  onClick={() => setDebugTab('logs')}
+                  className={cn(
+                    'px-3 py-1 rounded-md transition-all font-medium flex items-center gap-1',
+                    debugTab === 'logs'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  )}
+                >
+                  Logs ({debugLogs.length})
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowDebug(false)}
+                className="p-1 text-slate-400 hover:text-slate-200"
+                title="Minimizar painel de debug"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
+          {debugTab === 'db' && (
+            <div className="pt-4 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-xs text-slate-400 block">Total Geral no Firestore</span>
+                  <span className="text-xl font-bold text-slate-100">
+                    {allDbOrders ? `${allDbOrders.length} pedidos` : 'Carregando...'}
+                  </span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-xs text-slate-400 block">Competência Atual Selecionada</span>
+                  <span className="text-xl font-bold text-blue-400">{competence}</span>
+                  <span className="text-[11px] text-slate-400 block mt-0.5">
+                    ({orders.length} pedidos encontrados para {selMonth}/{selYear})
+                  </span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
+                  <span className="text-xs text-slate-400 block">Meses com Registros no Banco</span>
+                  <span className="text-xl font-bold text-emerald-400">
+                    {Object.keys(dbCompetenceBreakdown).length} períodos
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                  Períodos / Competências Encontrados no Firestore (Coleção vibraOrders)
+                </h4>
+                {Object.keys(dbCompetenceBreakdown).length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-800 text-center text-xs text-slate-400">
+                    Nenhum pedido encontrado no banco de dados. Faça a importação de um CSV ou adicione um novo pedido.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                    {Object.entries(dbCompetenceBreakdown).map(([comp, data]) => {
+                      const isCurrent = comp === competence;
+                      return (
+                        <div
+                          key={comp}
+                          className={cn(
+                            'p-3 rounded-xl border flex items-center justify-between transition-all',
+                            isCurrent
+                              ? 'bg-blue-950/40 border-blue-500/60 shadow-md'
+                              : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                          )}
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-slate-100">{comp}</span>
+                              {isCurrent && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500 text-white font-bold">
+                                  Ativo
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-400 mt-1">
+                              <span>{data.count} pedidos</span> •{' '}
+                              <span className="text-blue-300">{formatNumber(data.totalLiters, 0)} L</span> •{' '}
+                              <span className="text-emerald-400">{formatCurrency(data.totalValue)}</span>
+                            </div>
+                          </div>
+
+                          {!isCurrent && (
+                            <button
+                              onClick={() => setCompetence(comp)}
+                              className="px-2.5 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1 transition-all"
+                            >
+                              Ver Mês <ArrowRight size={11} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {allDbOrders && allDbOrders.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                    Últimos Registros Salvos no Banco (Sem filtro de competência)
+                  </h4>
+                  <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/80">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-900 text-slate-400 sticky top-0">
+                        <tr>
+                          <th className="p-2">ID Doc</th>
+                          <th className="p-2">Competência</th>
+                          <th className="p-2">Data Emissão</th>
+                          <th className="p-2">Nº Pedido</th>
+                          <th className="p-2 text-right">Litros</th>
+                          <th className="p-2 text-right">Preço/L</th>
+                          <th className="p-2 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-900 text-slate-300">
+                        {allDbOrders.slice(0, 8).map((o) => (
+                          <tr key={o.id} className="hover:bg-slate-900/50">
+                            <td className="p-2 font-mono text-[10px] text-slate-500">
+                              {o.id?.substring(0, 8)}...
+                            </td>
+                            <td className="p-2 font-semibold text-blue-400">{o.competence}</td>
+                            <td className="p-2">{formatDate(o.issueDate)}</td>
+                            <td className="p-2">{o.orderNumber || '—'}</td>
+                            <td className="p-2 text-right font-medium">{formatNumber(o.liters, 2)} L</td>
+                            <td className="p-2 text-right">R$ {formatNumber(o.unitPrice, 3)}</td>
+                            <td className="p-2 text-right font-bold text-emerald-400">
+                              {formatCurrency(o.totalValue)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {debugTab === 'logs' && (
+            <div className="pt-4 space-y-3">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400">Histórico de eventos do processador CSV:</span>
+                <button
+                  onClick={() => setDebugLogs([])}
+                  className="text-slate-400 hover:text-slate-200 underline"
+                >
+                  Limpar Logs
+                </button>
+              </div>
+
+              {debugLogs.length === 0 ? (
+                <div className="p-6 rounded-xl bg-slate-950 border border-slate-800 text-center text-xs text-slate-400">
+                  Nenhum log gravado ainda. Clique em &ldquo;Importar CSV&rdquo; ou &ldquo;Atualizar Dados do Banco&rdquo; para ver a execução em tempo real.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {debugLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className={cn(
+                        'p-3 rounded-xl border text-xs font-mono transition-all',
+                        log.type === 'error'
+                          ? 'bg-red-950/30 border-red-800/60 text-red-200'
+                          : log.type === 'warn'
+                          ? 'bg-amber-950/30 border-amber-800/60 text-amber-200'
+                          : log.type === 'success'
+                          ? 'bg-emerald-950/30 border-emerald-800/60 text-emerald-200'
+                          : 'bg-slate-900/80 border-slate-800 text-slate-300'
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1.5 font-bold">
+                          {log.type === 'error' && <AlertTriangle size={14} className="text-red-400" />}
+                          {log.type === 'success' && <CheckCircle2 size={14} className="text-emerald-400" />}
+                          {log.type === 'info' && <Info size={14} className="text-blue-400" />}
+                          <span>{log.title}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400">{log.time}</span>
+                      </div>
+
+                      {log.details && (
+                        <pre className="mt-2 p-2 rounded bg-black/50 overflow-x-auto text-[11px] text-slate-300">
+                          {typeof log.details === 'string'
+                            ? log.details
+                            : JSON.stringify(log.details, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">

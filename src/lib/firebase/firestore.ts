@@ -78,13 +78,32 @@ export function serializeQuerySnapshot<T>(snapshot: QuerySnapshot): T[] {
 // GENERIC CRUD
 // ============================================================
 
+function cleanUndefined<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      if (value !== null && typeof value === 'object' && !(value instanceof Date) && !(value instanceof Timestamp)) {
+        if (Array.isArray(value)) {
+          result[key] = value;
+        } else {
+          result[key] = cleanUndefined(value);
+        }
+      } else {
+        result[key] = value;
+      }
+    }
+  }
+  return result;
+}
+
 export async function createDocument<T extends { id?: string }>(
   collectionName: string,
-  data: Omit<T, 'id' | 'createdAt' | 'updatedAt'>,
+  data: Omit<T, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy'>,
   userId: string
 ): Promise<string> {
+  const cleanData = cleanUndefined(data as Record<string, any>);
   const docRef = await addDoc(collection(db, collectionName), {
-    ...data,
+    ...cleanData,
     createdBy: userId,
     updatedBy: userId,
     createdAt: serverTimestamp(),
@@ -100,8 +119,9 @@ export async function updateDocument<T>(
   userId: string
 ): Promise<void> {
   const docRef = doc(db, collectionName, docId);
+  const cleanData = cleanUndefined(data as Record<string, any>);
   await updateDoc(docRef, {
-    ...data,
+    ...cleanData,
     updatedBy: userId,
     updatedAt: serverTimestamp(),
   } as Record<string, unknown>);
@@ -137,7 +157,7 @@ export async function queryDocuments<T>(
 // ============================================================
 export async function batchCreate<T>(
   collectionName: string,
-  items: Omit<T, 'id' | 'createdAt' | 'updatedAt'>[],
+  items: Omit<T, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy'>[],
   userId: string
 ): Promise<number> {
   const batchSize = 500; // Firestore limit is 500 per batch
@@ -149,8 +169,9 @@ export async function batchCreate<T>(
 
     for (const item of chunk) {
       const docRef = doc(collection(db, collectionName));
+      const cleanData = cleanUndefined(item as Record<string, any>);
       batch.set(docRef, {
-        ...item,
+        ...cleanData,
         createdBy: userId,
         updatedBy: userId,
         createdAt: serverTimestamp(),
