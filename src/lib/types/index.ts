@@ -416,6 +416,23 @@ export interface AuditFilters {
 // ============================================================
 
 export interface VibraSummary {
+  competence: string;
+  // Pedidos emitidos no mês (Volume e Valor Comprado)
+  issuedTotalLiters: number;
+  issuedTotalValue: number;
+  issuedAvgUnitPrice: number;
+  issuedOrderCount: number;
+
+  // Contas a pagar / Vencimentos no mês
+  dueTotalValue: number;
+  dueTotalLiters: number;
+  duePaidValue: number;
+  duePendingValue: number;
+  duePaidCount: number;
+  duePendingCount: number;
+  dueOrderCount: number;
+
+  // Legado / compatibilidade
   totalLiters: number;
   totalValue: number;
   avgUnitPrice: number;

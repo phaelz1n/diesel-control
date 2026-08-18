@@ -18,7 +18,7 @@ import {
 } from 'firebase/firestore';
 import { db, COLLECTIONS, serializeDoc, serializeQuerySnapshot } from '@/lib/firebase/firestore';
 import { Refuel, RefuelFilters, DashboardKPIs, MonthlyStats, StationStats, VehicleStats, DailyStats, YearlyStats, VibraOrder, MonthlyExpense } from '@/lib/types';
-import { getVibraOrders, getMonthlyExpenses } from './expenses';
+import { getVibraOrders, getMonthlyExpenses, getVibraOrderCompetence } from './expenses';
 import { toYearMonth, calcTotalValue, calcKmTraveled, calcAvgKmL, formatCurrency } from '@/lib/utils';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 
@@ -228,7 +228,7 @@ export async function getDashboardKPIs(filters: RefuelFilters): Promise<Dashboar
       // Fetch all and filter by year
       const allV = await getVibraOrders();
       const allM = await getMonthlyExpenses();
-      vOrders = allV.filter(v => v.competence.startsWith(String(filters.year)));
+      vOrders = allV.filter(v => getVibraOrderCompetence(v).startsWith(String(filters.year)));
       mExpenses = allM.filter(m => m.competence.startsWith(String(filters.year)));
     }
   } else {

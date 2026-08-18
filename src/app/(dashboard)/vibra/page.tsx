@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
 import {
   Plus,
@@ -13,12 +14,22 @@ import {
   Download,
   X,
   AlertTriangle,
-  Bug,
   RefreshCw,
-  Database,
-  Info,
   CheckCircle2,
   ArrowRight,
+  CreditCard,
+  Clock,
+  Wallet,
+  Calendar,
+  Layers,
+  TrendingUp,
+  BarChart3,
+  CalendarClock,
+  History,
+  Check,
+  AlertCircle,
+  FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 import {
   getVibraOrders,
@@ -27,8 +38,18 @@ import {
   getVibraSummary,
   createVibraOrder,
   updateVibraOrder,
+  getVibraOrderCompetence,
+  getVibraOrderIssueCompetence,
+  getVibraOrderPaymentCompetence,
+  calcVibraProjection,
+  calcVibraAnnualHistory,
   VibraSummary,
+  VibraProjectionSummary,
+  VibraAnnualHistory,
 } from '@/services/expenses';
+import { exportToPDF } from '@/lib/utils/exportUtils';
+
+const ApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 import { VibraOrder, VibraStatus } from '@/lib/types';
 import { formatCurrency, formatNumber, formatDate, toYearMonth, cn } from '@/lib/utils';
 import { MONTHS, YEARS, VIBRA_STATUS_LABELS } from '@/lib/constants';
@@ -109,10 +130,10 @@ function parseBRDate(str?: string): Date | null {
   return isNaN(timestamp) ? null : new Date(timestamp);
 }
 
-const MONTH_NAME_MAP: Record<string, string> = {
+const MONTH_MAP: Record<string, string> = {
   'JANEIRO': '01', 'JAN': '01',
   'FEVEREIRO': '02', 'FEV': '02',
-  'MARÇO': '03', 'MARCO': '03', 'MAR': '03',
+  'MARCO': '03', 'MARÇO': '03', 'MAR': '03',
   'ABRIL': '04', 'ABR': '04',
   'MAIO': '05', 'MAI': '05',
   'JUNHO': '06', 'JUN': '06',
@@ -123,14 +144,6 @@ const MONTH_NAME_MAP: Record<string, string> = {
   'NOVEMBRO': '11', 'NOV': '11',
   'DEZEMBRO': '12', 'DEZ': '12',
 };
-
-interface DebugLog {
-  id: string;
-  time: string;
-  type: 'info' | 'success' | 'warn' | 'error';
-  title: string;
-  details?: any;
-}
 
 export default function VibraPage() {
   const { isAdmin } = usePermissions();
@@ -145,10 +158,6 @@ export default function VibraPage() {
   const [clearing, setClearing] = useState(false);
   const [importing, setImporting] = useState(false);
   
-  // Debug Panel State
-  const [showDebug, setShowDebug] = useState(false);
-  const [debugTab, setDebugTab] = useState<'db' | 'logs'>('db');
-  const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
   const [allDbOrders, setAllDbOrders] = useState<VibraOrder[] | null>(null);
   const [loadingDbAll, setLoadingDbAll] = useState(false);
   
@@ -169,39 +178,78 @@ export default function VibraPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selYear, selMonth] = competence.split('-');
 
-  const addDebugLog = (type: DebugLog['type'], title: string, details?: any) => {
-    const time = new Date().toLocaleTimeString('pt-BR', { hour12: false });
-    setDebugLogs((prev) => [
-      { id: Math.random().toString(36).substring(7), time, type, title, details },
-      ...prev,
-    ]);
-  };
-
   const loadAllDbOrders = useCallback(async () => {
     setLoadingDbAll(true);
     try {
-      addDebugLog('info', 'Consultando coleção vibraOrders sem filtro...');
       const all = await getVibraOrders();
       setAllDbOrders(all);
-      addDebugLog(
-        'success',
-        `Consulta concluída: ${all.length} documento(s) encontrado(s) no Firestore.`,
-        { total: all.length, amostra: all.slice(0, 3) }
-      );
     } catch (err: any) {
       console.error('Erro ao consultar banco geral:', err);
-      addDebugLog('error', 'Falha ao buscar todos os registros do Firestore', err?.message || err);
       toast.error('Erro ao consultar banco de dados.');
     } finally {
       setLoadingDbAll(false);
     }
   }, []);
 
+  const [viewFilter, setViewFilter] = useState<'all' | 'payment' | 'issue' | 'pending'>('all');
+
+  const filteredOrders = useMemo(() => {
+    if (viewFilter === 'issue') {
+      return orders.filter((o) => getVibraOrderIssueCompetence(o) === competence);
+    }
+    if (viewFilter === 'payment') {
+      return orders.filter((o) => getVibraOrderPaymentCompetence(o) === competence);
+    }
+    if (viewFilter === 'pending') {
+      return orders.filter((o) => o.status !== 'PAID');
+    }
+    return orders;
+  }, [orders, viewFilter, competence]);
+
+  const filteredTotals = useMemo(() => {
+    const totalLiters = filteredOrders.reduce((s, o) => s + (o.liters || 0), 0);
+    const totalValue = filteredOrders.reduce((s, o) => s + (o.totalValue || 0), 0);
+    const avgUnitPrice = totalLiters > 0 ? totalValue / totalLiters : 0;
+    const paidCount = filteredOrders.filter((o) => o.status === 'PAID').length;
+    const pendingCount = filteredOrders.filter((o) => o.status !== 'PAID').length;
+    const paidValue = filteredOrders.filter((o) => o.status === 'PAID').reduce((s, o) => s + (o.totalValue || 0), 0);
+    const pendingValue = filteredOrders.filter((o) => o.status !== 'PAID').reduce((s, o) => s + (o.totalValue || 0), 0);
+    return {
+      count: filteredOrders.length,
+      totalLiters,
+      totalValue,
+      avgUnitPrice,
+      paidCount,
+      pendingCount,
+      paidValue,
+      pendingValue,
+    };
+  }, [filteredOrders]);
+
+  const [mainTab, setMainTab] = useState<'monthly' | 'projection' | 'history'>('monthly');
+  const [historyYear, setHistoryYear] = useState<number>(Number(selYear) || new Date().getFullYear());
+
+  const projection = useMemo(() => calcVibraProjection(allDbOrders || []), [allDbOrders]);
+  const annualHistory = useMemo(() => calcVibraAnnualHistory(historyYear, allDbOrders || []), [historyYear, allDbOrders]);
+
+  const handleQuickMarkPaid = async (orderId: string) => {
+    if (!user) return;
+    try {
+      await updateVibraOrder(orderId, { status: 'PAID' }, user.uid);
+      toast.success('Fatura marcada como PAGA com sucesso!');
+      load();
+      loadAllDbOrders();
+    } catch (err) {
+      console.error('Erro ao atualizar status da fatura:', err);
+      toast.error('Erro ao atualizar status da fatura.');
+    }
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [o, s] = await Promise.all([
-        getVibraOrders(competence),
+        getVibraOrders(competence, 'all'),
         getVibraSummary(competence),
       ]);
       setOrders(o);
@@ -368,14 +416,179 @@ export default function VibraPage() {
     }
   };
 
+  const handleExportMonthlyPDF = () => {
+    if (orders.length === 0) {
+      toast.error('Nenhum dado para exportar.');
+      return;
+    }
+    const columns = [
+      'Data Emissão',
+      'Nº Pedido / NF',
+      'Litros',
+      'Preço/L',
+      'Valor Total',
+      'Vencimento',
+      'Status',
+    ];
+    const rows = filteredOrders.map((o) => [
+      formatDate(o.issueDate),
+      o.orderNumber ? `#${o.orderNumber}${o.invoiceNumber ? ` (NF: ${o.invoiceNumber})` : ''}` : o.invoiceNumber || '—',
+      `${formatNumber(o.liters, 2)} L`,
+      `R$ ${formatNumber(o.unitPrice, 3)}`,
+      formatCurrency(o.totalValue),
+      o.paymentDate ? formatDate(o.paymentDate) : '—',
+      VIBRA_STATUS_LABELS[o.status] || o.status,
+    ]);
+    const foot = [
+      [
+        'Total',
+        `${filteredTotals.count} pedidos`,
+        `${formatNumber(filteredTotals.totalLiters, 2)} L`,
+        `R$ ${formatNumber(filteredTotals.avgUnitPrice, 3)}`,
+        formatCurrency(filteredTotals.totalValue),
+        `Pago: ${formatCurrency(filteredTotals.paidValue)}`,
+        `Pendente: ${formatCurrency(filteredTotals.pendingValue)}`,
+      ],
+    ];
+    exportToPDF(
+      `Relatório de Lançamentos Vibra - ${selMonth}/${selYear}`,
+      columns,
+      rows,
+      `vibra_lancamentos_${competence}`,
+      {
+        subtitle: `Competência: ${selMonth}/${selYear} | Filtro: ${
+          viewFilter === 'all'
+            ? 'Todos os Lançamentos'
+            : viewFilter === 'payment'
+            ? 'Vencimentos no Mês'
+            : viewFilter === 'issue'
+            ? 'Pedidos Emitidos no Mês'
+            : 'Pendentes a Pagar'
+        }`,
+        summaryInfo: [
+          { label: 'Litros Pedidos', value: `${formatNumber(filteredTotals.totalLiters, 0)} L` },
+          { label: 'Total Pedido', value: formatCurrency(filteredTotals.totalValue) },
+          { label: 'Preço Médio/L', value: `R$ ${formatNumber(filteredTotals.avgUnitPrice, 3)}` },
+          { label: 'Já Pago', value: formatCurrency(filteredTotals.paidValue) },
+          { label: 'Pendente', value: formatCurrency(filteredTotals.pendingValue) },
+        ],
+        foot,
+      }
+    );
+  };
+
+  const handleExportProjectionPDF = () => {
+    if (projection.bills.length === 0) {
+      toast.error('Nenhuma fatura pendente para exportar.');
+      return;
+    }
+    const columns = [
+      'Vencimento',
+      'Prazo / Urgência',
+      'Nº Pedido / NF',
+      'Data Emissão',
+      'Litros',
+      'Preço/L',
+      'Valor Fatura',
+    ];
+    const rows = projection.bills.map((b) => [
+      formatDate(b.dueDate),
+      b.statusCategory === 'overdue'
+        ? `Vencido há ${Math.abs(b.daysRemaining)} dia(s)`
+        : b.statusCategory === 'today'
+        ? 'Vence Hoje!'
+        : `Vence em ${b.daysRemaining} dia(s)`,
+      b.order.orderNumber ? `#${b.order.orderNumber}` : b.order.invoiceNumber || '—',
+      formatDate(b.order.issueDate),
+      `${formatNumber(b.order.liters, 2)} L`,
+      `R$ ${formatNumber(b.order.unitPrice, 3)}`,
+      formatCurrency(b.order.totalValue),
+    ]);
+    const foot = [
+      [
+        'Total Geral a Pagar',
+        `${projection.bills.length} faturas pendentes`,
+        '—',
+        '—',
+        `${formatNumber(projection.bills.reduce((s, b) => s + (b.order.liters || 0), 0), 2)} L`,
+        '—',
+        formatCurrency(projection.totalPendingValue),
+      ],
+    ];
+    exportToPDF(
+      'Projeção de Faturas a Pagar - Vibra Combustíveis',
+      columns,
+      rows,
+      `vibra_projecao_faturas_${toYearMonth(new Date())}`,
+      {
+        subtitle: 'Cronograma e previsão de fluxo de caixa futuro para pagamento à Vibra',
+        summaryInfo: [
+          { label: 'Total a Pagar em Aberto', value: formatCurrency(projection.totalPendingValue) },
+          { label: 'Vencidas', value: `${formatCurrency(projection.overdueValue)} (${projection.overdueCount} faturas)` },
+          { label: 'Próximos 7 Dias', value: `${formatCurrency(projection.next7DaysValue)} (${projection.next7DaysCount} faturas)` },
+          { label: '8 a 30 Dias', value: `${formatCurrency(projection.next30DaysValue)} (${projection.next30DaysCount} faturas)` },
+        ],
+        foot,
+      }
+    );
+  };
+
+  const handleExportHistoryPDF = () => {
+    const columns = [
+      'Mês',
+      'Pedidos',
+      'Volume (Litros)',
+      'Preço Médio/L',
+      'Total Compras (Emissão)',
+      'Vencimentos do Mês',
+      'Total Pago (Caixa)',
+      'Total Pendente',
+    ];
+    const rows = annualHistory.months.map((m) => [
+      `${m.monthLabel}/${historyYear}`,
+      m.issuedOrderCount,
+      `${formatNumber(m.issuedTotalLiters, 0)} L`,
+      m.issuedAvgUnitPrice > 0 ? `R$ ${formatNumber(m.issuedAvgUnitPrice, 3)}` : '—',
+      formatCurrency(m.issuedTotalValue),
+      formatCurrency(m.dueTotalValue),
+      formatCurrency(m.duePaidValue),
+      m.duePendingValue > 0 ? formatCurrency(m.duePendingValue) : '—',
+    ]);
+    const foot = [
+      [
+        `Total Acumulado ${historyYear}`,
+        `${annualHistory.totalIssuedOrders} pedidos`,
+        `${formatNumber(annualHistory.totalIssuedLiters, 0)} L`,
+        `R$ ${formatNumber(annualHistory.avgIssuedUnitPrice, 3)}`,
+        formatCurrency(annualHistory.totalIssuedValue),
+        formatCurrency(annualHistory.totalDueValue),
+        formatCurrency(annualHistory.totalPaidValue),
+        formatCurrency(annualHistory.totalPendingValue),
+      ],
+    ];
+    exportToPDF(
+      `Histórico Anual Consolidado Vibra - ${historyYear}`,
+      columns,
+      rows,
+      `vibra_historico_anual_${historyYear}`,
+      {
+        subtitle: `Demonstrativo anual consolidado de compras faturadas e desembolsos de caixa (${historyYear})`,
+        summaryInfo: [
+          { label: 'Litros Comprados', value: `${formatNumber(annualHistory.totalIssuedLiters, 0)} L` },
+          { label: 'Total em Compras', value: formatCurrency(annualHistory.totalIssuedValue) },
+          { label: 'Total Liquidado', value: formatCurrency(annualHistory.totalPaidValue) },
+          { label: 'Preço Médio Anual', value: `R$ ${formatNumber(annualHistory.avgIssuedUnitPrice, 3)}/L` },
+        ],
+        foot,
+      }
+    );
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
     setImporting(true);
-    setShowDebug(true);
-    setDebugTab('logs');
-    addDebugLog('info', `Iniciando leitura do arquivo: ${file.name} (${file.size} bytes)...`);
 
     Papa.parse(file, {
       header: true,
@@ -383,22 +596,14 @@ export default function VibraPage() {
       delimitersToGuess: [',', ';', '\t', '|'],
       complete: async (results: any) => {
         try {
-          addDebugLog('info', 'Arquivo CSV analisado pelo PapaParse', {
-            delimitador: results.meta.delimiter,
-            camposDetectados: results.meta.fields,
-            totalLinhasBrutas: results.data?.length,
-          });
-
           const rows = results.data as Record<string, any>[];
           if (!rows || rows.length === 0) {
-            addDebugLog('error', 'Arquivo vazio ou sem linhas de dados reconhecidas.');
             toast.error('Arquivo vazio ou formato não reconhecido.');
             return;
           }
 
           const newOrders: Omit<VibraOrder, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy'>[] = [];
           const competencesEncountered = new Set<string>();
-          const skippedRows: any[] = [];
 
           let rowIdx = 0;
           for (const row of rows) {
@@ -410,7 +615,7 @@ export default function VibraPage() {
             const upperMonth = normKey(rawMonth).toUpperCase();
             
             let detectedMonthCode: string | undefined = undefined;
-            for (const [mName, mCode] of Object.entries(MONTH_NAME_MAP)) {
+            for (const [mName, mCode] of Object.entries(MONTH_MAP)) {
               if (normKey(mName) === upperMonth) {
                 detectedMonthCode = mCode;
                 break;
@@ -429,7 +634,6 @@ export default function VibraPage() {
             }
 
             if (!emissaoStr && !pagamentoStr && !litrosStr) {
-              skippedRows.push({ linha: rowIdx, motivo: 'Sem data nem litros', row });
               continue;
             }
 
@@ -471,36 +675,18 @@ export default function VibraPage() {
             });
           }
 
-          addDebugLog('info', `Processamento das linhas: ${newOrders.length} válidas, ${skippedRows.length} ignoradas.`, {
-            competenciasDetectadas: Array.from(competencesEncountered),
-            primeirasOrdens: newOrders.slice(0, 3),
-            linhasIgnoradasAmostra: skippedRows.slice(0, 3),
-          });
-
           if (newOrders.length > 0) {
-            addDebugLog('info', `Gravando em lote (batchCreate) ${newOrders.length} registros no Firestore na coleção '${COLLECTIONS.VIBRA_ORDERS}'...`);
             const createdCount = await batchCreate(COLLECTIONS.VIBRA_ORDERS, newOrders, user.uid);
-
-            addDebugLog('success', `Gravação no Firestore concluída com sucesso! ${createdCount} documentos inseridos.`, { totalInseridos: createdCount, competencias: Array.from(competencesEncountered) });
-            
             const countMonths = competencesEncountered.size;
             toast.success(`${createdCount} pedidos Vibra importados em ${countMonths} ${countMonths === 1 ? 'mês' : 'meses'}!`);
-            
-            const currentInImported = competencesEncountered.has(competence);
-            if (!currentInImported && competencesEncountered.size > 0) {
-              const firstComp = Array.from(competencesEncountered)[0];
-              toast.info(`Os dados foram importados para o período ${firstComp}. Use o seletor ou o Painel de Debug para visualizar.`, { duration: 6000 });
-            }
             
             load();
             loadAllDbOrders();
           } else {
-            addDebugLog('warn', 'Nenhum registro válido extraído do arquivo CSV.', { linhasBrutas: rows.slice(0, 5) });
             toast.error('Nenhum dado válido encontrado no CSV para importar.');
           }
         } catch (err: any) {
           console.error('Erro na importação:', err);
-          addDebugLog('error', 'Exceção ao gravar dados no Firestore', { mensagem: err?.message || String(err), stack: err?.stack });
           toast.error(`Erro ao processar o CSV: ${err?.message || 'Falha desconhecida'}`);
         } finally {
           setImporting(false);
@@ -509,26 +695,11 @@ export default function VibraPage() {
       },
       error: (err) => {
         console.error('Papa parse error:', err);
-        addDebugLog('error', 'Falha do analisador PapaParse', err);
         toast.error('Falha ao ler o arquivo CSV.');
         setImporting(false);
       },
     });
   };
-
-  const dbCompetenceBreakdown = (allDbOrders || []).reduce(
-    (acc, order) => {
-      const comp = order.competence || 'Sem competência';
-      if (!acc[comp]) {
-        acc[comp] = { count: 0, totalLiters: 0, totalValue: 0 };
-      }
-      acc[comp].count += 1;
-      acc[comp].totalLiters += order.liters || 0;
-      acc[comp].totalValue += order.totalValue || 0;
-      return acc;
-    },
-    {} as Record<string, { count: number; totalLiters: number; totalValue: number }>
-  );
 
   const selectStyle: React.CSSProperties = {
     background: 'var(--bg-card)',
@@ -538,582 +709,1350 @@ export default function VibraPage() {
 
   return (
     <div className="page-container animate-fade-in space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Top Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-              Controle Vibra
-            </h1>
-            <button
-              onClick={() => setShowDebug(!showDebug)}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all',
-                showDebug
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
-                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500'
-              )}
-              title="Abrir/Fechar painel de diagnóstico e debug do banco de dados"
-            >
-              <Bug size={13} className={showDebug ? 'text-amber-400' : 'text-slate-400'} />
-              <span>Diagnóstico DB</span>
-              {allDbOrders !== null && (
-                <span className="px-1.5 py-0.2 bg-black/40 rounded text-[10px]">
-                  {allDbOrders.length} no BD
-                </span>
-              )}
-            </button>
-          </div>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+            Controle Vibra
+          </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Pedidos e notas de combustível Vibra
+            Gestão de pedidos, faturas, projeção de pagamentos e histórico de combustível
           </p>
         </div>
+
+        {/* Action Controls for Active Tab */}
         <div className="flex items-center flex-wrap gap-2 sm:gap-3">
-          <select
-            value={selYear}
-            onChange={(e) => setCompetence(`${e.target.value}-${selMonth}`)}
-            className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer"
-            style={selectStyle}
-          >
-            {YEARS.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-          <select
-            value={selMonth}
-            onChange={(e) => setCompetence(`${selYear}-${e.target.value}`)}
-            className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer"
-            style={selectStyle}
-          >
-            {MONTHS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          {mainTab === 'monthly' && (
+            <>
+              <select
+                value={selYear}
+                onChange={(e) => setCompetence(`${e.target.value}-${selMonth}`)}
+                className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer"
+                style={selectStyle}
+              >
+                {YEARS.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={selMonth}
+                onChange={(e) => setCompetence(`${selYear}-${e.target.value}`)}
+                className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer"
+                style={selectStyle}
+              >
+                {MONTHS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
 
-          {isAdmin && (
-            <div className="flex items-center flex-wrap gap-2">
-              <input
-                type="file"
-                accept=".csv"
-                className="hidden"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-              />
               <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={importing}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors"
+                onClick={handleExportMonthlyPDF}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold border transition-all"
                 style={{
                   background: 'var(--bg-card)',
-                  border: '1px solid var(--border)',
+                  borderColor: 'var(--border)',
                   color: 'var(--text-primary)',
                 }}
-                title="Importar planilha de faturas Vibra"
+                title="Exportar relatório de lançamentos do mês em PDF"
               >
-                <Upload size={16} /> {importing ? 'Importando...' : 'Importar CSV'}
-              </button>
-              <button
-                onClick={handleDownloadTemplate}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors"
-                style={{
-                  background: 'var(--bg-card)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text-primary)',
-                }}
-                title="Baixar modelo de CSV"
-              >
-                <Download size={16} /> Modelo
-              </button>
-              <button
-                onClick={handleOpenCreateModal}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-white shadow-lg transition-all active:scale-95"
-                style={{
-                  background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-                  boxShadow: '0 2px 12px rgba(37,99,235,0.4)',
-                }}
-              >
-                <Plus size={16} /> Novo Pedido
+                <FileText size={15} className="text-blue-400" />
+                <span>Exportar PDF</span>
               </button>
 
-              {orders.length > 0 && (
-                <button
-                  onClick={handleClearPeriod}
-                  disabled={clearing}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors border',
-                    confirmClearAll
-                      ? 'bg-red-500 text-white border-red-600 animate-pulse'
-                      : 'hover:bg-red-500/10 text-red-400 border-red-500/20'
+              {isAdmin && (
+                <div className="flex items-center flex-wrap gap-2">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={importing}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors"
+                    style={{
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-primary)',
+                    }}
+                    title="Importar planilha de faturas Vibra"
+                  >
+                    <Upload size={16} /> {importing ? 'Importando...' : 'Importar CSV'}
+                  </button>
+                  <button
+                    onClick={handleDownloadTemplate}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors"
+                    style={{
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-primary)',
+                    }}
+                    title="Baixar modelo de CSV"
+                  >
+                    <Download size={16} /> Modelo
+                  </button>
+                  <button
+                    onClick={handleOpenCreateModal}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-white shadow-lg transition-all active:scale-95"
+                    style={{
+                      background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+                      boxShadow: '0 2px 12px rgba(37,99,235,0.4)',
+                    }}
+                  >
+                    <Plus size={16} /> Novo Pedido
+                  </button>
+
+                  {orders.length > 0 && (
+                    <button
+                      onClick={handleClearPeriod}
+                      disabled={clearing}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors border',
+                        confirmClearAll
+                          ? 'bg-red-500 text-white border-red-600 animate-pulse'
+                          : 'hover:bg-red-500/10 text-red-400 border-red-500/20'
+                      )}
+                      title="Limpar todos os pedidos importados deste mês selecionado"
+                    >
+                      <Trash2 size={15} />
+                      {clearing ? 'Limpando...' : confirmClearAll ? 'Confirmar exclusão de todas?' : 'Limpar Mês'}
+                    </button>
                   )}
-                  title="Limpar todos os pedidos importados deste mês selecionado"
-                >
-                  <Trash2 size={15} />
-                  {clearing ? 'Limpando...' : confirmClearAll ? 'Confirmar exclusão de todas?' : 'Limpar Mês'}
-                </button>
+                </div>
               )}
-            </div>
+            </>
           )}
-        </div>
-      </div>
 
-      {showDebug && (
-        <div
-          className="rounded-2xl border p-5 shadow-xl transition-all animate-fade-in"
-          style={{
-            background: 'linear-gradient(180deg, #0f172a 0%, #090d16 100%)',
-            borderColor: '#1e293b',
-          }}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                <Database size={18} />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-100 flex items-center gap-2 text-sm sm:text-base">
-                  Painel de Diagnóstico & Debug (Firestore / CSV)
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Verifique se o banco de dados está reconhecendo os registros e analise logs de
-                  importação.
-                </p>
-              </div>
-            </div>
-
+          {mainTab === 'projection' && (
             <div className="flex items-center gap-2">
               <button
                 onClick={loadAllDbOrders}
                 disabled={loadingDbAll}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600/20 border border-blue-500/40 text-blue-300 hover:bg-blue-600/30 transition-all"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold border transition-all"
+                style={{
+                  background: 'var(--bg-card)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-primary)',
+                }}
               >
-                <RefreshCw size={13} className={loadingDbAll ? 'animate-spin' : ''} />
-                {loadingDbAll ? 'Consultando...' : 'Atualizar Dados do Banco'}
+                <RefreshCw size={15} className={loadingDbAll ? 'animate-spin' : ''} />
+                Atualizar
               </button>
+              <button
+                onClick={handleExportProjectionPDF}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold border transition-all"
+                style={{
+                  background: 'var(--bg-card)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-primary)',
+                }}
+                title="Exportar projeção de faturas a pagar em PDF"
+              >
+                <FileText size={15} className="text-emerald-400" />
+                <span>Exportar PDF</span>
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={handleOpenCreateModal}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-white shadow-md transition-all active:scale-95"
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                  }}
+                >
+                  <Plus size={16} /> Novo Lançamento
+                </button>
+              )}
+            </div>
+          )}
 
-              <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
-                <button
-                  onClick={() => setDebugTab('db')}
-                  className={cn(
-                    'px-3 py-1 rounded-md transition-all font-medium',
-                    debugTab === 'db'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  )}
-                >
-                  Banco de Dados ({allDbOrders?.length ?? '?'})
-                </button>
-                <button
-                  onClick={() => setDebugTab('logs')}
-                  className={cn(
-                    'px-3 py-1 rounded-md transition-all font-medium flex items-center gap-1',
-                    debugTab === 'logs'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  )}
-                >
-                  Logs ({debugLogs.length})
-                </button>
+          {mainTab === 'history' && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-400 font-medium">Ano do Histórico:</label>
+              <select
+                value={historyYear}
+                onChange={(e) => setHistoryYear(Number(e.target.value))}
+                className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer font-bold"
+                style={selectStyle}
+              >
+                {YEARS.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleExportHistoryPDF}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold border transition-all"
+                style={{
+                  background: 'var(--bg-card)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-primary)',
+                }}
+                title="Exportar histórico consolidado anual em PDF"
+              >
+                <FileText size={15} className="text-purple-400" />
+                <span>Exportar PDF</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
+        <button
+          onClick={() => setMainTab('monthly')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap',
+            mainTab === 'monthly'
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+          )}
+        >
+          <Calendar size={16} />
+          <span>Lançamentos do Mês ({selMonth}/{selYear})</span>
+        </button>
+
+        <button
+          onClick={() => setMainTab('projection')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap',
+            mainTab === 'projection'
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+          )}
+        >
+          <CalendarClock size={16} />
+          <span>Projeção de Faturas a Pagar</span>
+          {projection.totalPendingCount > 0 && (
+            <span
+              className={cn(
+                'px-2 py-0.5 rounded-full text-xs font-bold',
+                projection.overdueCount > 0
+                  ? 'bg-red-500 text-white animate-pulse'
+                  : 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+              )}
+            >
+              {projection.totalPendingCount} pendente(s)
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setMainTab('history')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap',
+            mainTab === 'history'
+              ? 'bg-purple-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+          )}
+        >
+          <History size={16} />
+          <span>Histórico Consolidado de Pedidos</span>
+        </button>
+      </div>
+
+      {/* TAB 1: MONTHLY LAUNCHES & BILLS */}
+      {mainTab === 'monthly' && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Summary Cards: Separação de Pedidos Emitidos vs Contas a Pagar por Vencimento */}
+          {loading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Skeleton className="h-36 rounded-2xl" />
+              <Skeleton className="h-36 rounded-2xl" />
+            </div>
+          ) : summary ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Card 1: Pedidos Emitidos (Compras do Mês) */}
+              <div
+                className="rounded-2xl p-5 border relative overflow-hidden transition-all shadow-md flex flex-col justify-between"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(37,99,235,0.1) 0%, var(--bg-card) 100%)',
+                  borderColor: 'rgba(59,130,246,0.3)',
+                }}
+              >
+                <div>
+                  <div className="flex items-center justify-between pb-3 mb-3 border-b border-blue-500/20">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-blue-500/20 text-blue-400">
+                        <Droplets size={20} />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-sm text-slate-100 flex items-center gap-1.5">
+                          Pedidos Emitidos no Mês
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Volume e compras faturadas na data de emissão ({selMonth}/{selYear})
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                      {summary.issuedOrderCount} {summary.issuedOrderCount === 1 ? 'pedido' : 'pedidos'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 pt-1">
+                    <div>
+                      <span className="text-xs text-slate-400 block mb-1">Litros Pedidos</span>
+                      <span className="text-lg sm:text-xl font-bold text-blue-400">
+                        {formatNumber(summary.issuedTotalLiters, 0)} L
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-slate-400 block mb-1">Total Pedido</span>
+                      <span className="text-lg sm:text-xl font-bold text-slate-100">
+                        {formatCurrency(summary.issuedTotalValue)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-slate-400 block mb-1">Preço Médio</span>
+                      <span className="text-lg sm:text-xl font-bold text-slate-200">
+                        R$ {formatNumber(summary.issuedAvgUnitPrice, 3)}
+                        <span className="text-xs text-slate-400 font-normal">/L</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <button
-                onClick={() => setShowDebug(false)}
-                className="p-1 text-slate-400 hover:text-slate-200"
-                title="Minimizar painel de debug"
+              {/* Card 2: Contas a Pagar & Vencimentos do Mês */}
+              <div
+                className="rounded-2xl p-5 border relative overflow-hidden transition-all shadow-md flex flex-col justify-between"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(16,185,129,0.1) 0%, var(--bg-card) 100%)',
+                  borderColor: 'rgba(16,185,129,0.3)',
+                }}
               >
-                <X size={18} />
+                <div>
+                  <div className="flex items-center justify-between pb-3 mb-3 border-b border-emerald-500/20">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                        <CreditCard size={20} />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-sm text-slate-100 flex items-center gap-1.5">
+                          Vencimentos & Contas a Pagar
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Faturas com data de vencimento/pagamento em {selMonth}/{selYear}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      {summary.dueOrderCount} {summary.dueOrderCount === 1 ? 'vencimento' : 'vencimentos'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 pt-1">
+                    <div>
+                      <span className="text-xs text-slate-400 block mb-1">Total a Pagar no Mês</span>
+                      <span className="text-lg sm:text-xl font-bold text-emerald-400">
+                        {formatCurrency(summary.dueTotalValue)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-emerald-400/90 block mb-1 flex items-center gap-1">
+                        <CheckCircle2 size={12} /> Já Pago
+                      </span>
+                      <span className="text-lg sm:text-xl font-bold text-emerald-300">
+                        {formatCurrency(summary.duePaidValue)}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                        ({summary.duePaidCount} {summary.duePaidCount === 1 ? 'pago' : 'pagos'})
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-amber-400/90 block mb-1 flex items-center gap-1">
+                        <Clock size={12} /> Pendente / A Pagar
+                      </span>
+                      <span
+                        className={cn(
+                          'text-lg sm:text-xl font-bold',
+                          summary.duePendingValue > 0 ? 'text-amber-400' : 'text-slate-400'
+                        )}
+                      >
+                        {formatCurrency(summary.duePendingValue)}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                        ({summary.duePendingCount} {summary.duePendingCount === 1 ? 'pendente' : 'pendentes'})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Filter Tabs & Counter */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/90 border border-slate-800 text-xs overflow-x-auto">
+              <button
+                onClick={() => setViewFilter('all')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap',
+                  viewFilter === 'all'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                <span>Todos os Lançamentos</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                  {orders.length}
+                </span>
               </button>
+
+              <button
+                onClick={() => setViewFilter('payment')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap',
+                  viewFilter === 'payment'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                <CreditCard size={13} />
+                <span>Vencimentos no Mês</span>
+                {summary && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {summary.dueOrderCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setViewFilter('issue')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap',
+                  viewFilter === 'issue'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                <Droplets size={13} />
+                <span>Pedidos Emitidos no Mês</span>
+                {summary && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {summary.issuedOrderCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setViewFilter('pending')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap',
+                  viewFilter === 'pending'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                <Clock size={13} />
+                <span>Pendentes a Pagar</span>
+                {summary && summary.duePendingCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-black font-bold text-[10px]">
+                    {summary.duePendingCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-400">
+              Exibindo <span className="font-semibold text-slate-200">{filteredOrders.length}</span> de{' '}
+              <span className="font-semibold text-slate-200">{orders.length}</span> lançamento(s)
             </div>
           </div>
 
-          {debugTab === 'db' && (
-            <div className="pt-4 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-xs text-slate-400 block">Total Geral no Firestore</span>
-                  <span className="text-xl font-bold text-slate-100">
-                    {allDbOrders ? `${allDbOrders.length} pedidos` : 'Carregando...'}
-                  </span>
-                </div>
-                <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-xs text-slate-400 block">Competência Atual Selecionada</span>
-                  <span className="text-xl font-bold text-blue-400">{competence}</span>
-                  <span className="text-[11px] text-slate-400 block mt-0.5">
-                    ({orders.length} pedidos encontrados para {selMonth}/{selYear})
-                  </span>
-                </div>
-                <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                  <span className="text-xs text-slate-400 block">Meses com Registros no Banco</span>
-                  <span className="text-xl font-bold text-emerald-400">
-                    {Object.keys(dbCompetenceBreakdown).length} períodos
-                  </span>
-                </div>
-              </div>
+          {/* Table */}
+          <div
+            className="rounded-2xl border overflow-hidden"
+            style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full data-table min-w-[750px]">
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)' }}>
+                    <th className="text-left px-4 py-3">Data Emissão</th>
+                    <th className="text-left px-4 py-3">Nº Pedido / NF</th>
+                    <th className="text-right px-4 py-3">Litros Pedidos</th>
+                    <th className="text-right px-4 py-3">Preço/L</th>
+                    <th className="text-right px-4 py-3">Valor Total</th>
+                    <th className="text-center px-4 py-3">Vencimento / Pagamento</th>
+                    <th className="text-center px-4 py-3">Status</th>
+                    {isAdmin && <th className="w-24 px-4 py-3 text-right">Ações</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <tr key={i}>
+                        {Array.from({ length: 8 }).map((__, j) => (
+                          <td key={j} className="px-4 py-3">
+                            <Skeleton className="h-5" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : filteredOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-12 text-center">
+                        <Droplets size={40} className="mx-auto mb-3 text-blue-400/20" />
+                        <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                          Nenhum pedido encontrado para o filtro selecionado em {selMonth}/{selYear}.
+                        </p>
+                        <p className="text-xs mt-1 text-slate-500">
+                          Utilize &ldquo;Novo Pedido&rdquo; ou &ldquo;Importar CSV&rdquo; para adicionar pedidos, ou selecione outro período acima.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredOrders.map((o) => {
+                      const isIssueThisMonth = getVibraOrderIssueCompetence(o) === competence;
+                      const isPaymentThisMonth = getVibraOrderPaymentCompetence(o) === competence;
 
-              <div>
-                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Períodos / Competências Encontrados no Firestore (Coleção vibraOrders)
-                </h4>
-                {Object.keys(dbCompetenceBreakdown).length === 0 ? (
-                  <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-800 text-center text-xs text-slate-400">
-                    Nenhum pedido encontrado no banco de dados. Faça a importação de um CSV ou adicione um novo pedido.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                    {Object.entries(dbCompetenceBreakdown).map(([comp, data]) => {
-                      const isCurrent = comp === competence;
                       return (
-                        <div
-                          key={comp}
-                          className={cn(
-                            'p-3 rounded-xl border flex items-center justify-between transition-all',
-                            isCurrent
-                              ? 'bg-blue-950/40 border-blue-500/60 shadow-md'
-                              : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
-                          )}
+                        <tr
+                          key={o.id}
+                          className="border-t hover:bg-white/[0.02] transition-colors"
+                          style={{ borderColor: 'var(--border-subtle)' }}
                         >
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm text-slate-100">{comp}</span>
-                              {isCurrent && (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500 text-white font-bold">
-                                  Ativo
+                          <td className="px-4 py-3 text-sm">
+                            <div className="flex flex-col">
+                              <span style={{ color: 'var(--text-primary)' }}>
+                                {formatDate(o.issueDate)}
+                              </span>
+                              {!isIssueThisMonth && (
+                                <span className="text-[10px] text-blue-400 font-medium">
+                                  (Emitido em {formatDate(o.issueDate).substring(3)})
                                 </span>
                               )}
                             </div>
-                            <div className="text-xs text-slate-400 mt-1">
-                              <span>{data.count} pedidos</span> •{' '}
-                              <span className="text-blue-300">{formatNumber(data.totalLiters, 0)} L</span> •{' '}
-                              <span className="text-emerald-400">{formatCurrency(data.totalValue)}</span>
-                            </div>
-                          </div>
-
-                          {!isCurrent && (
-                            <button
-                              onClick={() => setCompetence(comp)}
-                              className="px-2.5 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1 transition-all"
+                          </td>
+                          <td className="px-4 py-3 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                            {o.orderNumber ? (
+                              <span>Pedido #{o.orderNumber}</span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>—</span>
+                            )}
+                            {o.invoiceNumber && (
+                              <span className="ml-1 text-xs opacity-75 font-normal" style={{ color: 'var(--text-secondary)' }}>
+                                (NF: {o.invoiceNumber})
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm font-semibold text-blue-400">
+                            {formatNumber(o.liters, 2)} L
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm" style={{ color: 'var(--text-secondary)' }}>
+                            R$ {formatNumber(o.unitPrice, 3)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm font-bold text-slate-100">
+                            {formatCurrency(o.totalValue)}
+                          </td>
+                          <td className="px-4 py-3 text-center text-sm">
+                            {o.paymentDate ? (
+                              <div className="flex flex-col items-center">
+                                <span
+                                  className={cn(
+                                    'font-medium',
+                                    o.status === 'PAID'
+                                      ? 'text-emerald-400'
+                                      : 'text-amber-400'
+                                  )}
+                                >
+                                  {formatDate(o.paymentDate)}
+                                </span>
+                                {!isPaymentThisMonth && (
+                                  <span className="text-[10px] text-slate-500">
+                                    (Vence em {formatDate(o.paymentDate).substring(3)})
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span
+                              className={cn(
+                                'inline-flex items-center text-xs font-medium px-2.5 py-0.5 rounded-full',
+                                o.status === 'PAID'
+                                  ? 'badge-paid'
+                                  : o.status === 'PENDING'
+                                  ? 'badge-pending'
+                                  : 'badge-partial'
+                              )}
                             >
-                              Ver Mês <ArrowRight size={11} />
-                            </button>
+                              {VIBRA_STATUS_LABELS[o.status] || o.status}
+                            </span>
+                          </td>
+                          {isAdmin && (
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => handleOpenEditModal(o)}
+                                  className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                                  style={{ color: 'var(--text-secondary)' }}
+                                  title="Editar pedido"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(o.id)}
+                                  className={cn(
+                                    'p-1.5 rounded-lg transition-colors',
+                                    confirmDelete === o.id
+                                      ? 'bg-red-500/20 text-red-400'
+                                      : 'hover:bg-red-500/10 text-red-400/50 hover:text-red-400'
+                                  )}
+                                  title={confirmDelete === o.id ? 'Clique para confirmar exclusão' : 'Excluir pedido'}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
                           )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {allDbOrders && allDbOrders.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                    Últimos Registros Salvos no Banco (Sem filtro de competência)
-                  </h4>
-                  <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/80">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-slate-900 text-slate-400 sticky top-0">
-                        <tr>
-                          <th className="p-2">ID Doc</th>
-                          <th className="p-2">Competência</th>
-                          <th className="p-2">Data Emissão</th>
-                          <th className="p-2">Nº Pedido</th>
-                          <th className="p-2 text-right">Litros</th>
-                          <th className="p-2 text-right">Preço/L</th>
-                          <th className="p-2 text-right">Total</th>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-900 text-slate-300">
-                        {allDbOrders.slice(0, 8).map((o) => (
-                          <tr key={o.id} className="hover:bg-slate-900/50">
-                            <td className="p-2 font-mono text-[10px] text-slate-500">
-                              {o.id?.substring(0, 8)}...
-                            </td>
-                            <td className="p-2 font-semibold text-blue-400">{o.competence}</td>
-                            <td className="p-2">{formatDate(o.issueDate)}</td>
-                            <td className="p-2">{o.orderNumber || '—'}</td>
-                            <td className="p-2 text-right font-medium">{formatNumber(o.liters, 2)} L</td>
-                            <td className="p-2 text-right">R$ {formatNumber(o.unitPrice, 3)}</td>
-                            <td className="p-2 text-right font-bold text-emerald-400">
-                              {formatCurrency(o.totalValue)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+                      );
+                    })
+                  )}
+                </tbody>
+                {filteredOrders.length > 0 && (
+                  <tfoot>
+                    <tr style={{ background: 'var(--bg-secondary)', borderTop: '2px solid var(--border)' }}>
+                      <td className="px-4 py-3 font-semibold text-sm" colSpan={2} style={{ color: 'var(--text-primary)' }}>
+                        Total ({filteredTotals.count} {filteredTotals.count === 1 ? 'lançamento' : 'lançamentos'})
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-bold text-blue-400">
+                        {formatNumber(filteredTotals.totalLiters, 2)} L
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        R$ {formatNumber(filteredTotals.avgUnitPrice, 3)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-bold text-emerald-400">
+                        {formatCurrency(filteredTotals.totalValue)}
+                      </td>
+                      <td colSpan={isAdmin ? 3 : 2} className="px-4 py-3 text-xs text-right text-slate-400">
+                        <span className="text-emerald-400 font-medium">Pago: {formatCurrency(filteredTotals.paidValue)}</span>
+                        {filteredTotals.pendingValue > 0 && (
+                          <span className="ml-2 text-amber-400 font-medium">• Pendente: {formatCurrency(filteredTotals.pendingValue)}</span>
+                        )}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             </div>
-          )}
-
-          {debugTab === 'logs' && (
-            <div className="pt-4 space-y-3">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400">Histórico de eventos do processador CSV:</span>
-                <button
-                  onClick={() => setDebugLogs([])}
-                  className="text-slate-400 hover:text-slate-200 underline"
-                >
-                  Limpar Logs
-                </button>
-              </div>
-
-              {debugLogs.length === 0 ? (
-                <div className="p-6 rounded-xl bg-slate-950 border border-slate-800 text-center text-xs text-slate-400">
-                  Nenhum log gravado ainda. Clique em &ldquo;Importar CSV&rdquo; ou &ldquo;Atualizar Dados do Banco&rdquo; para ver a execução em tempo real.
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {debugLogs.map((log) => (
-                    <div
-                      key={log.id}
-                      className={cn(
-                        'p-3 rounded-xl border text-xs font-mono transition-all',
-                        log.type === 'error'
-                          ? 'bg-red-950/30 border-red-800/60 text-red-200'
-                          : log.type === 'warn'
-                          ? 'bg-amber-950/30 border-amber-800/60 text-amber-200'
-                          : log.type === 'success'
-                          ? 'bg-emerald-950/30 border-emerald-800/60 text-emerald-200'
-                          : 'bg-slate-900/80 border-slate-800 text-slate-300'
-                      )}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 font-bold">
-                          {log.type === 'error' && <AlertTriangle size={14} className="text-red-400" />}
-                          {log.type === 'success' && <CheckCircle2 size={14} className="text-emerald-400" />}
-                          {log.type === 'info' && <Info size={14} className="text-blue-400" />}
-                          <span>{log.title}</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400">{log.time}</span>
-                      </div>
-
-                      {log.details && (
-                        <pre className="mt-2 p-2 rounded bg-black/50 overflow-x-auto text-[11px] text-slate-300">
-                          {typeof log.details === 'string'
-                            ? log.details
-                            : JSON.stringify(log.details, null, 2)}
-                        </pre>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          </div>
         </div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        {loading ? (
-          Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
-        ) : summary ? (
-          <>
-            <div className="kpi-card">
-              <Droplets size={20} className="text-blue-400 mb-2" />
-              <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                {formatNumber(summary.totalLiters, 0)} L
-              </p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Total Litros
-              </p>
+      {/* TAB 2: PROJECTION & FUTURE BILLS */}
+      {mainTab === 'projection' && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Alerts for overdue or approaching bills */}
+          {projection.overdueCount > 0 && (
+            <div className="p-4 rounded-2xl bg-red-950/40 border border-red-800/60 text-red-200 flex items-center justify-between gap-3 shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-red-500/20 text-red-400">
+                  <AlertCircle size={22} />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-red-100">
+                    Atenção: Existem {projection.overdueCount} fatura(s) vencida(s) da Vibra!
+                  </h4>
+                  <p className="text-xs text-red-300/80">
+                    Total em atraso: <strong>{formatCurrency(projection.overdueValue)}</strong>. Regularize os pagamentos abaixo.
+                  </p>
+                </div>
+              </div>
             </div>
-            <div className="kpi-card">
-              <DollarSign size={20} className="text-green-400 mb-2" />
-              <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                {formatCurrency(summary.totalValue)}
-              </p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Total Gasto
-              </p>
-            </div>
-            <div className="kpi-card">
-              <p className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
-                R$ {formatNumber(summary.avgUnitPrice, 3)}/L
-              </p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Preço Médio
-              </p>
-            </div>
-            <div className="kpi-card">
-              <p className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
-                {summary.orderCount}
-              </p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Pedidos
-              </p>
-            </div>
-            <div className="kpi-card">
-              <p className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
-                {formatNumber(summary.avgLitersPerOrder, 0)} L
-              </p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Média/Pedido
-              </p>
-            </div>
-          </>
-        ) : null}
-      </div>
+          )}
 
-      {/* Table */}
-      <div
-        className="rounded-2xl border overflow-hidden"
-        style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full data-table min-w-[750px]">
-            <thead>
-              <tr style={{ background: 'var(--bg-secondary)' }}>
-                <th className="text-left px-4 py-3">Emissão</th>
-                <th className="text-left px-4 py-3">Nº Pedido / NF</th>
-                <th className="text-right px-4 py-3">Litros</th>
-                <th className="text-right px-4 py-3">Preço/L</th>
-                <th className="text-right px-4 py-3">Total</th>
-                <th className="text-center px-4 py-3">Pagamento</th>
-                <th className="text-center px-4 py-3">Status</th>
-                {isAdmin && <th className="w-24 px-4 py-3 text-right">Ações</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={i}>
-                    {Array.from({ length: 8 }).map((__, j) => (
-                      <td key={j} className="px-4 py-3">
-                        <Skeleton className="h-5" />
-                      </td>
-                    ))}
+          {/* Projection KPI Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="kpi-card border-amber-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400">Total a Pagar em Aberto</span>
+                <Clock size={18} className="text-amber-400" />
+              </div>
+              <p className="text-2xl font-bold text-amber-400">
+                {formatCurrency(projection.totalPendingValue)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {projection.totalPendingCount} fatura(s) pendente(s) no total
+              </p>
+            </div>
+
+            <div
+              className={cn(
+                'kpi-card border transition-all',
+                projection.overdueCount > 0
+                  ? 'border-red-500/50 bg-red-950/20 shadow-md'
+                  : 'border-slate-800'
+              )}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400">Faturas Vencidas</span>
+                <AlertTriangle
+                  size={18}
+                  className={projection.overdueCount > 0 ? 'text-red-400' : 'text-slate-500'}
+                />
+              </div>
+              <p
+                className={cn(
+                  'text-2xl font-bold',
+                  projection.overdueCount > 0 ? 'text-red-400' : 'text-slate-300'
+                )}
+              >
+                {formatCurrency(projection.overdueValue)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {projection.overdueCount} fatura(s) em atraso
+              </p>
+            </div>
+
+            <div className="kpi-card border-yellow-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400">A Vencer nos Próximos 7 Dias</span>
+                <CalendarClock size={18} className="text-yellow-400" />
+              </div>
+              <p className="text-2xl font-bold text-yellow-400">
+                {formatCurrency(projection.next7DaysValue)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {projection.next7DaysCount} fatura(s) vencendo esta semana
+              </p>
+            </div>
+
+            <div className="kpi-card border-blue-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400">A Vencer em 8 a 30 Dias</span>
+                <Calendar size={18} className="text-blue-400" />
+              </div>
+              <p className="text-2xl font-bold text-blue-400">
+                {formatCurrency(projection.next30DaysValue)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {projection.next30DaysCount} fatura(s) no próximo mês
+              </p>
+            </div>
+          </div>
+
+          {/* Monthly Cash Outflow Timeline Chart */}
+          {projection.monthlyTimeline.length > 0 && (
+            <div
+              className="rounded-2xl p-6 border shadow-md"
+              style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                <div>
+                  <h3 className="font-bold text-base text-slate-100 flex items-center gap-2">
+                    <BarChart3 size={18} className="text-emerald-400" />
+                    Projeção de Desembolso / Vencimentos por Mês
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Previsão de pagamentos distribuída mês a mês (Faturas Pagas vs Pendentes)
+                  </p>
+                </div>
+              </div>
+
+              <div className="h-72 w-full">
+                <ApexChart
+                  type="bar"
+                  height={280}
+                  series={[
+                    {
+                      name: 'Faturas Pagas',
+                      data: projection.monthlyTimeline.map((m) => m.paidValue),
+                    },
+                    {
+                      name: 'Faturas Pendentes',
+                      data: projection.monthlyTimeline.map((m) => m.pendingValue),
+                    },
+                  ]}
+                  options={{
+                    chart: {
+                      type: 'bar',
+                      stacked: true,
+                      toolbar: { show: false },
+                      background: 'transparent',
+                    },
+                    theme: { mode: 'dark' },
+                    colors: ['#10b981', '#f59e0b'],
+                    plotOptions: {
+                      bar: {
+                        borderRadius: 6,
+                        columnWidth: '45%',
+                      },
+                    },
+                    dataLabels: { enabled: false },
+                    stroke: { width: 0 },
+                    xaxis: {
+                      categories: projection.monthlyTimeline.map((m) => m.monthLabel),
+                      labels: { style: { colors: '#94a3b8', fontSize: '12px' } },
+                      axisBorder: { show: false },
+                      axisTicks: { show: false },
+                    },
+                    yaxis: {
+                      labels: {
+                        style: { colors: '#94a3b8', fontSize: '11px' },
+                        formatter: (val) => `R$ ${(val / 1000).toFixed(0)}k`,
+                      },
+                    },
+                    grid: {
+                      borderColor: '#1e293b',
+                      strokeDashArray: 4,
+                    },
+                    tooltip: {
+                      theme: 'dark',
+                      y: {
+                        formatter: (val) => formatCurrency(val),
+                      },
+                    },
+                    legend: {
+                      position: 'top',
+                      horizontalAlign: 'right',
+                      labels: { colors: '#94a3b8' },
+                    },
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Pending Bills Timeline Table */}
+          <div
+            className="rounded-2xl border overflow-hidden shadow-md"
+            style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+          >
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-base text-slate-100 flex items-center gap-2">
+                  <Clock size={18} className="text-amber-400" />
+                  Cronograma de Faturas a Pagar da Vibra
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Todas as faturas pendentes organizadas por ordem de vencimento
+                </p>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                {projection.bills.length} faturas em aberto
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full data-table min-w-[750px]">
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)' }}>
+                    <th className="text-left px-4 py-3">Vencimento</th>
+                    <th className="text-left px-4 py-3">Prazo / Urgência</th>
+                    <th className="text-left px-4 py-3">Nº Pedido / NF</th>
+                    <th className="text-left px-4 py-3">Data Emissão</th>
+                    <th className="text-right px-4 py-3">Litros</th>
+                    <th className="text-right px-4 py-3">Preço/L</th>
+                    <th className="text-right px-4 py-3">Valor da Fatura</th>
+                    {isAdmin && <th className="w-36 px-4 py-3 text-right">Ação Rápida</th>}
                   </tr>
-                ))
-              ) : orders.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center">
-                    <Droplets size={40} className="mx-auto mb-3 text-blue-400/20" />
-                    <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                      Nenhum pedido Vibra para {selMonth}/{selYear}.
-                    </p>
-                    {allDbOrders && allDbOrders.length > 0 ? (
-                      <div className="mt-4 max-w-md mx-auto p-4 rounded-xl bg-blue-950/30 border border-blue-800/40 text-left">
-                        <p className="text-xs text-blue-200 font-medium mb-2">
-                          💡 Existem <strong>{allDbOrders.length} pedidos</strong> cadastrados no banco nos seguintes meses:
+                </thead>
+                <tbody>
+                  {projection.bills.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-12 text-center">
+                        <CheckCircle2 size={40} className="mx-auto mb-3 text-emerald-400/40" />
+                        <p className="font-semibold text-emerald-400">
+                          Tudo em dia! Nenhuma fatura pendente de pagamento.
                         </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {Object.entries(dbCompetenceBreakdown).map(([comp, d]) => (
-                            <button
-                              key={comp}
-                              onClick={() => setCompetence(comp)}
-                              className="px-2.5 py-1 rounded-lg text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 border border-blue-500/40 font-medium transition-all"
+                        <p className="text-xs mt-1 text-slate-500">
+                          Todas as faturas cadastradas no sistema já foram liquidadas.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    projection.bills.map((bill) => {
+                      const o = bill.order;
+                      return (
+                        <tr
+                          key={bill.id}
+                          className={cn(
+                            'border-t transition-colors',
+                            bill.statusCategory === 'overdue'
+                              ? 'bg-red-950/20 hover:bg-red-950/40 border-red-900/40'
+                              : bill.statusCategory === 'today'
+                              ? 'bg-amber-950/20 hover:bg-amber-950/40 border-amber-900/40'
+                              : 'hover:bg-white/[0.02] border-slate-800'
+                          )}
+                        >
+                          <td className="px-4 py-3 text-sm font-bold">
+                            <span
+                              className={cn(
+                                bill.statusCategory === 'overdue'
+                                  ? 'text-red-400'
+                                  : bill.statusCategory === 'today'
+                                  ? 'text-amber-400'
+                                  : 'text-slate-100'
+                              )}
                             >
-                              {comp} ({d.count} pedidos)
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-xs mt-1 text-slate-500">
-                        Utilize &ldquo;Importar CSV&rdquo; para carregar os pedidos ou selecione outro mês acima.
-                      </p>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                orders.map((o) => (
-                  <tr key={o.id} className="border-t hover:bg-white/[0.02] transition-colors" style={{ borderColor: 'var(--border-subtle)' }}>
-                    <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      {formatDate(o.issueDate)}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                      {o.orderNumber ? (
-                        <span>Pedido #{o.orderNumber}</span>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>—</span>
-                      )}
-                      {o.invoiceNumber && (
-                        <span className="ml-1 text-xs opacity-75 font-normal" style={{ color: 'var(--text-secondary)' }}>
-                          (NF: {o.invoiceNumber})
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
-                      {formatNumber(o.liters, 2)} L
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      R$ {formatNumber(o.unitPrice, 3)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-bold" style={{ color: '#60a5fa' }}>
-                      {formatCurrency(o.totalValue)}
-                    </td>
-                    <td className="px-4 py-3 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      {o.paymentDate ? formatDate(o.paymentDate) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span
+                              {formatDate(bill.dueDate)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs">
+                            {bill.statusCategory === 'overdue' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/20 text-red-300 font-bold border border-red-500/40">
+                                <AlertTriangle size={12} />
+                                Vencido há {Math.abs(bill.daysRemaining)} dia(s)
+                              </span>
+                            )}
+                            {bill.statusCategory === 'today' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40 animate-pulse">
+                                <Clock size={12} />
+                                Vence Hoje!
+                              </span>
+                            )}
+                            {bill.statusCategory === 'next_7_days' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-500/20 text-yellow-300 font-medium border border-yellow-500/40">
+                                <Clock size={12} />
+                                Vence em {bill.daysRemaining} dia(s)
+                              </span>
+                            )}
+                            {bill.statusCategory === 'next_30_days' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 font-medium border border-blue-500/40">
+                                <Calendar size={12} />
+                                Vence em {bill.daysRemaining} dia(s)
+                              </span>
+                            )}
+                            {bill.statusCategory === 'future' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 font-medium border border-slate-700">
+                                <Calendar size={12} />
+                                Vence em {bill.daysRemaining} dias
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-medium text-slate-100">
+                            {o.orderNumber ? <span>Pedido #{o.orderNumber}</span> : '—'}
+                            {o.invoiceNumber && (
+                              <span className="ml-1 text-xs opacity-75 font-normal text-slate-400">
+                                (NF: {o.invoiceNumber})
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-400">
+                            {formatDate(o.issueDate)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm font-semibold text-blue-400">
+                            {formatNumber(o.liters, 2)} L
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-slate-400">
+                            R$ {formatNumber(o.unitPrice, 3)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm font-bold text-amber-400">
+                            {formatCurrency(o.totalValue)}
+                          </td>
+                          {isAdmin && (
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleQuickMarkPaid(o.id)}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-500/40 transition-all shadow-sm"
+                                  title="Marcar esta fatura como paga"
+                                >
+                                  <Check size={13} />
+                                  <span>Dar Baixa</span>
+                                </button>
+                                <button
+                                  onClick={() => handleOpenEditModal(o)}
+                                  className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors"
+                                  title="Editar detalhes da fatura"
+                                >
+                                  <Edit2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                {projection.bills.length > 0 && (
+                  <tfoot>
+                    <tr style={{ background: 'var(--bg-secondary)', borderTop: '2px solid var(--border)' }}>
+                      <td colSpan={4} className="px-4 py-3 font-semibold text-sm text-slate-100">
+                        Total Geral a Pagar ({projection.bills.length} faturas pendentes)
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-bold text-blue-400">
+                        {formatNumber(
+                          projection.bills.reduce((s, b) => s + (b.order.liters || 0), 0),
+                          2
+                        )}{' '}
+                        L
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-slate-400">—</td>
+                      <td className="px-4 py-3 text-right text-base font-bold text-amber-400">
+                        {formatCurrency(projection.totalPendingValue)}
+                      </td>
+                      {isAdmin && <td />}
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: CONSOLIDATED ORDER HISTORY */}
+      {mainTab === 'history' && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Annual KPIs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="kpi-card border-blue-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400">Volume Total Comprado ({historyYear})</span>
+                <Droplets size={18} className="text-blue-400" />
+              </div>
+              <p className="text-2xl font-bold text-blue-400">
+                {formatNumber(annualHistory.totalIssuedLiters, 0)} L
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {annualHistory.totalIssuedOrders} pedidos realizados no ano
+              </p>
+            </div>
+
+            <div className="kpi-card border-indigo-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400">Total em Compras ({historyYear})</span>
+                <DollarSign size={18} className="text-indigo-400" />
+              </div>
+              <p className="text-2xl font-bold text-slate-100">
+                {formatCurrency(annualHistory.totalIssuedValue)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Regime de emissão / faturado
+              </p>
+            </div>
+
+            <div className="kpi-card border-emerald-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400">Total Liquidado em Pagamentos</span>
+                <CreditCard size={18} className="text-emerald-400" />
+              </div>
+              <p className="text-2xl font-bold text-emerald-400">
+                {formatCurrency(annualHistory.totalPaidValue)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {formatCurrency(annualHistory.totalPendingValue)} pendente(s) no ano
+              </p>
+            </div>
+
+            <div className="kpi-card border-purple-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400">Preço Médio Anual</span>
+                <TrendingUp size={18} className="text-purple-400" />
+              </div>
+              <p className="text-2xl font-bold text-purple-400">
+                R$ {formatNumber(annualHistory.avgIssuedUnitPrice, 3)}
+                <span className="text-xs text-slate-400 font-normal">/L</span>
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Média ponderada do diesel
+              </p>
+            </div>
+          </div>
+
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* Chart 1: Financial Evolution (Issued vs Paid) */}
+            <div
+              className="rounded-2xl p-6 border shadow-md"
+              style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-base text-slate-100 flex items-center gap-2">
+                    <BarChart3 size={18} className="text-blue-400" />
+                    Comparativo: Compras Faturadas vs Pagamentos Pagos ({historyYear})
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Total em pedidos emitidos vs total liquidado por mês
+                  </p>
+                </div>
+              </div>
+
+              <div className="h-72 w-full">
+                <ApexChart
+                  type="bar"
+                  height={280}
+                  series={[
+                    {
+                      name: 'Total em Pedidos (Emissão)',
+                      data: annualHistory.months.map((m) => m.issuedTotalValue),
+                    },
+                    {
+                      name: 'Total Pago (Caixa)',
+                      data: annualHistory.months.map((m) => m.duePaidValue),
+                    },
+                  ]}
+                  options={{
+                    chart: {
+                      type: 'bar',
+                      toolbar: { show: false },
+                      background: 'transparent',
+                    },
+                    theme: { mode: 'dark' },
+                    colors: ['#3b82f6', '#10b981'],
+                    plotOptions: {
+                      bar: {
+                        borderRadius: 4,
+                        columnWidth: '55%',
+                      },
+                    },
+                    dataLabels: { enabled: false },
+                    xaxis: {
+                      categories: annualHistory.months.map((m) => m.monthLabel),
+                      labels: { style: { colors: '#94a3b8', fontSize: '12px' } },
+                      axisBorder: { show: false },
+                      axisTicks: { show: false },
+                    },
+                    yaxis: {
+                      labels: {
+                        style: { colors: '#94a3b8', fontSize: '11px' },
+                        formatter: (val) => `R$ ${(val / 1000).toFixed(0)}k`,
+                      },
+                    },
+                    grid: {
+                      borderColor: '#1e293b',
+                      strokeDashArray: 4,
+                    },
+                    tooltip: {
+                      theme: 'dark',
+                      y: { formatter: (val) => formatCurrency(val) },
+                    },
+                    legend: {
+                      position: 'top',
+                      horizontalAlign: 'right',
+                      labels: { colors: '#94a3b8' },
+                    },
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Chart 2: Volume & Average Price Evolution */}
+            <div
+              className="rounded-2xl p-6 border shadow-md"
+              style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-base text-slate-100 flex items-center gap-2">
+                    <TrendingUp size={18} className="text-cyan-400" />
+                    Volume de Litros & Preço Médio por Litro ({historyYear})
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Evolução do volume comprado (L) e do preço unitário médio (R$/L)
+                  </p>
+                </div>
+              </div>
+
+              <div className="h-72 w-full">
+                <ApexChart
+                  type="line"
+                  height={280}
+                  series={[
+                    {
+                      name: 'Litros Comprados',
+                      type: 'column',
+                      data: annualHistory.months.map((m) => m.issuedTotalLiters),
+                    },
+                    {
+                      name: 'Preço Médio (R$/L)',
+                      type: 'line',
+                      data: annualHistory.months.map((m) => +m.issuedAvgUnitPrice.toFixed(3)),
+                    },
+                  ]}
+                  options={{
+                    chart: {
+                      type: 'line',
+                      toolbar: { show: false },
+                      background: 'transparent',
+                    },
+                    theme: { mode: 'dark' },
+                    colors: ['#06b6d4', '#f59e0b'],
+                    stroke: {
+                      width: [0, 3],
+                      curve: 'smooth',
+                    },
+                    plotOptions: {
+                      bar: {
+                        borderRadius: 4,
+                        columnWidth: '50%',
+                      },
+                    },
+                    dataLabels: { enabled: false },
+                    xaxis: {
+                      categories: annualHistory.months.map((m) => m.monthLabel),
+                      labels: { style: { colors: '#94a3b8', fontSize: '12px' } },
+                      axisBorder: { show: false },
+                      axisTicks: { show: false },
+                    },
+                    yaxis: [
+                      {
+                        title: { text: 'Litros', style: { color: '#06b6d4' } },
+                        labels: {
+                          style: { colors: '#94a3b8', fontSize: '11px' },
+                          formatter: (val) => `${(val / 1000).toFixed(0)}k L`,
+                        },
+                      },
+                      {
+                        opposite: true,
+                        title: { text: 'Preço/L (R$)', style: { color: '#f59e0b' } },
+                        labels: {
+                          style: { colors: '#94a3b8', fontSize: '11px' },
+                          formatter: (val) => `R$ ${val.toFixed(2)}`,
+                        },
+                      },
+                    ],
+                    grid: {
+                      borderColor: '#1e293b',
+                      strokeDashArray: 4,
+                    },
+                    tooltip: {
+                      theme: 'dark',
+                    },
+                    legend: {
+                      position: 'top',
+                      horizontalAlign: 'right',
+                      labels: { colors: '#94a3b8' },
+                    },
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Consolidated Monthly Breakdown Table */}
+          <div
+            className="rounded-2xl border overflow-hidden shadow-md"
+            style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+          >
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-base text-slate-100 flex items-center gap-2">
+                  <FileSpreadsheet size={18} className="text-purple-400" />
+                  Evolução Consolidada Mês a Mês ({historyYear})
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Resumo gerencial de compras, desembolsos e preços médios de todos os meses
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full data-table min-w-[800px]">
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)' }}>
+                    <th className="text-left px-4 py-3">Mês</th>
+                    <th className="text-right px-4 py-3">Pedidos Emitidos</th>
+                    <th className="text-right px-4 py-3">Volume Comprado</th>
+                    <th className="text-right px-4 py-3">Preço Médio/L</th>
+                    <th className="text-right px-4 py-3">Total Compras (R$)</th>
+                    <th className="text-right px-4 py-3">Vencimentos do Mês</th>
+                    <th className="text-right px-4 py-3">Total Pago (R$)</th>
+                    <th className="text-right px-4 py-3">Total Pendente (R$)</th>
+                    <th className="w-28 px-4 py-3 text-center">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {annualHistory.months.map((m) => {
+                    const hasData = m.issuedOrderCount > 0 || m.dueOrderCount > 0;
+                    return (
+                      <tr
+                        key={m.month}
                         className={cn(
-                          'inline-flex items-center text-xs font-medium px-2.5 py-0.5 rounded-full',
-                          o.status === 'PAID'
-                            ? 'badge-paid'
-                            : o.status === 'PENDING'
-                            ? 'badge-pending'
-                            : 'badge-partial'
+                          'hover:bg-white/[0.02] transition-colors',
+                          !hasData ? 'opacity-50' : ''
                         )}
                       >
-                        {VIBRA_STATUS_LABELS[o.status] || o.status}
-                      </span>
+                        <td className="px-4 py-3 text-sm font-bold text-slate-100">
+                          {m.monthLabel}/{historyYear}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm text-slate-300">
+                          {m.issuedOrderCount}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-semibold text-blue-400">
+                          {formatNumber(m.issuedTotalLiters, 0)} L
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm text-slate-300">
+                          {m.issuedAvgUnitPrice > 0 ? `R$ ${formatNumber(m.issuedAvgUnitPrice, 3)}` : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-bold text-slate-100">
+                          {formatCurrency(m.issuedTotalValue)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm text-slate-300">
+                          {formatCurrency(m.dueTotalValue)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-400">
+                          {formatCurrency(m.duePaidValue)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-semibold text-amber-400">
+                          {m.duePendingValue > 0 ? formatCurrency(m.duePendingValue) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => {
+                              setCompetence(m.month);
+                              setMainTab('monthly');
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-600/30 hover:bg-blue-600 text-blue-200 hover:text-white border border-blue-500/40 transition-all flex items-center justify-center gap-1 mx-auto"
+                          >
+                            <span>Ver Mês</span>
+                            <ArrowRight size={11} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--bg-secondary)', borderTop: '2px solid var(--border)' }}>
+                    <td className="px-4 py-3 font-semibold text-sm text-slate-100">
+                      Total Acumulado ({historyYear})
                     </td>
-                    {isAdmin && (
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => handleOpenEditModal(o)}
-                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                            style={{ color: 'var(--text-secondary)' }}
-                            title="Editar pedido"
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(o.id)}
-                            className={cn(
-                              'p-1.5 rounded-lg transition-colors',
-                              confirmDelete === o.id
-                                ? 'bg-red-500/20 text-red-400'
-                                : 'hover:bg-red-500/10 text-red-400/50 hover:text-red-400'
-                            )}
-                            title={confirmDelete === o.id ? 'Clique para confirmar exclusão' : 'Excluir pedido'}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    )}
+                    <td className="px-4 py-3 text-right text-sm font-bold text-slate-100">
+                      {annualHistory.totalIssuedOrders}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-bold text-blue-400">
+                      {formatNumber(annualHistory.totalIssuedLiters, 0)} L
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-bold text-slate-100">
+                      R$ {formatNumber(annualHistory.avgIssuedUnitPrice, 3)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-bold text-slate-100">
+                      {formatCurrency(annualHistory.totalIssuedValue)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-bold text-slate-100">
+                      {formatCurrency(annualHistory.totalDueValue)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-bold text-emerald-400">
+                      {formatCurrency(annualHistory.totalPaidValue)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-bold text-amber-400">
+                      {formatCurrency(annualHistory.totalPendingValue)}
+                    </td>
+                    <td />
                   </tr>
-                ))
-              )}
-            </tbody>
-            {orders.length > 0 && summary && (
-              <tfoot>
-                <tr style={{ background: 'var(--bg-secondary)', borderTop: '2px solid var(--border)' }}>
-                  <td className="px-4 py-3 font-semibold text-sm" colSpan={2} style={{ color: 'var(--text-primary)' }}>
-                    Total ({summary.orderCount} pedidos)
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm font-bold" style={{ color: '#60a5fa' }}>
-                    {formatNumber(summary.totalLiters, 2)} L
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm" style={{ color: 'var(--text-secondary)' }}>
-                    R$ {formatNumber(summary.avgUnitPrice, 3)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm font-bold" style={{ color: '#60a5fa' }}>
-                    {formatCurrency(summary.totalValue)}
-                  </td>
-                  <td colSpan={isAdmin ? 3 : 2} />
-                </tr>
-              </tfoot>
-            )}
-          </table>
+                </tfoot>
+              </table>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Modal Novo/Editar Pedido — rendered via portal to bypass containing block */}
       {modalOpen && createPortal(
@@ -1150,7 +2089,7 @@ export default function VibraPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
-                    Data de Emissão *
+                    Data de Emissão (Pedido) *
                   </label>
                   <input
                     type="date"
@@ -1168,7 +2107,7 @@ export default function VibraPage() {
 
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
-                    Data de Pagamento
+                    Data de Vencimento / Pagamento
                   </label>
                   <input
                     type="date"

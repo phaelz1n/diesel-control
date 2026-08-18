@@ -4,12 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
 import {
-  BarChart3, Download, TrendingUp, MapPin, Car, ArrowRightLeft, Calendar, CalendarDays, History
+  BarChart3, Download, TrendingUp, MapPin, Car, ArrowRightLeft, Calendar, CalendarDays, History, FileText, FileSpreadsheet
 } from 'lucide-react';
 import { getMonthlyStats, getStationStats, getVehicleStats, getDashboardKPIs, getDailyStats, getYearlyStats } from '@/services/refuels';
 import { MonthlyStats, StationStats, VehicleStats, DashboardKPIs, ComparisonData, DailyStats, YearlyStats } from '@/lib/types';
 import { formatCurrency, formatNumber, formatVariation, calcVariation, cn } from '@/lib/utils';
 import { MONTHS, YEARS, MONTHS_SHORT } from '@/lib/constants';
+import { exportToPDF, exportToExcel } from '@/lib/utils/exportUtils';
 
 const ApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
@@ -51,25 +52,37 @@ function ComparativoTab() {
   const [period2, setPeriod2] = useState(`${prevYear}-${String(prevMonth).padStart(2, '0')}`);
   const [data1, setData1] = useState<DashboardKPIs | null>(null);
   const [data2, setData2] = useState<DashboardKPIs | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [d1, d2] = await Promise.all([
+      const [r1, r2] = await Promise.all([
         getDashboardKPIs({ month: period1 }),
         getDashboardKPIs({ month: period2 }),
       ]);
-      setData1(d1);
-      setData2(d2);
-    } catch (err) { console.error("Erro detalhado:", err);
+      setData1(r1);
+      setData2(r2);
+    } catch (err) {
+      console.error(err);
       toast.error('Erro ao carregar comparativo.');
     } finally {
       setLoading(false);
     }
   }, [period1, period2]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const rows: { label: string; key: keyof DashboardKPIs; format: (v: number) => string }[] = [
+    { label: 'Gasto Total', key: 'totalValue', format: formatCurrency },
+    { label: 'Volume Total (Litros)', key: 'totalLiters', format: (v) => `${formatNumber(v, 0)} L` },
+    { label: 'Total de Abastecimentos', key: 'totalRefuels', format: (v) => `${v}` },
+    { label: 'Preço Médio por Litro', key: 'avgUnitPrice', format: (v) => `R$ ${formatNumber(v, 3)}` },
+    { label: 'Custo Médio / Abastecimento', key: 'avgCostPerRefuel', format: formatCurrency },
+    { label: 'Média de Consumo (km/L)', key: 'avgKmL', format: (v) => `${formatNumber(v, 2)} km/L` },
+  ];
 
   const selectStyle: React.CSSProperties = {
     background: 'var(--bg-card)',
@@ -77,49 +90,114 @@ function ComparativoTab() {
     color: 'var(--text-primary)',
   };
 
-  const rows = [
-    { label: 'Gasto Total', key: 'totalValue', format: formatCurrency },
-    { label: 'Litros', key: 'totalLiters', format: (v: number) => `${formatNumber(v, 2)} L` },
-    { label: 'Abastecimentos', key: 'totalRefuels', format: (v: number) => formatNumber(v, 0) },
-    { label: 'Preço Médio/L', key: 'avgUnitPrice', format: (v: number) => `R$ ${formatNumber(v, 3)}` },
-    { label: 'Média km/L', key: 'avgKmL', format: (v: number) => `${formatNumber(v, 2)} km/L` },
-    { label: 'Custo Médio/Abast.', key: 'avgCostPerRefuel', format: formatCurrency },
-  ] as const;
-
   const periodLabel = (p: string) => {
     const [y, m] = p.split('-');
     return `${MONTHS.find((mo) => mo.value === m)?.label ?? m}/${y}`;
   };
 
+  const handleExportPDF = () => {
+    const columns = ['Indicador', periodLabel(period1), periodLabel(period2), 'Variação (%)'];
+    const exportRows = rows.map((r) => {
+      const v1 = data1?.[r.key] ?? 0;
+      const v2 = data2?.[r.key] ?? 0;
+      const variation = calcVariation(v1, v2);
+      return [r.label, r.format(v1 as number), r.format(v2 as number), formatVariation(variation)];
+    });
+
+    exportToPDF(
+      'Relatório Comparativo de Períodos',
+      columns,
+      exportRows,
+      `relatorio_comparativo_${period1}_vs_${period2}`,
+      {
+        subtitle: `Comparativo entre ${periodLabel(period1)} e ${periodLabel(period2)}`,
+        summaryInfo: [
+          { label: `Gasto ${periodLabel(period1)}`, value: formatCurrency(data1?.totalValue ?? 0) },
+          { label: `Gasto ${periodLabel(period2)}`, value: formatCurrency(data2?.totalValue ?? 0) },
+        ],
+      }
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div
-        className="flex flex-wrap gap-4 p-5 rounded-2xl border"
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border"
         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
       >
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-blue-400">Período 1:</span>
-          <select value={period1.split('-')[0]} onChange={(e) => setPeriod1(`${e.target.value}-${period1.split('-')[1]}`)}
-            className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer" style={selectStyle}>
-            {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <select value={period1.split('-')[1]} onChange={(e) => setPeriod1(`${period1.split('-')[0]}-${e.target.value}`)}
-            className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer" style={selectStyle}>
-            {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </select>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-blue-400">Período 1:</span>
+            <select
+              value={period1.split('-')[0]}
+              onChange={(e) => setPeriod1(`${e.target.value}-${period1.split('-')[1]}`)}
+              className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer"
+              style={selectStyle}
+            >
+              {YEARS.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+            <select
+              value={period1.split('-')[1]}
+              onChange={(e) => setPeriod1(`${period1.split('-')[0]}-${e.target.value}`)}
+              className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer"
+              style={selectStyle}
+            >
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <ArrowRightLeft size={18} className="text-slate-500 self-center hidden sm:block" />
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium" style={{ color: '#f59e0b' }}>
+              Período 2:
+            </span>
+            <select
+              value={period2.split('-')[0]}
+              onChange={(e) => setPeriod2(`${e.target.value}-${period2.split('-')[1]}`)}
+              className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer"
+              style={selectStyle}
+            >
+              {YEARS.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+            <select
+              value={period2.split('-')[1]}
+              onChange={(e) => setPeriod2(`${period2.split('-')[0]}-${e.target.value}`)}
+              className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer"
+              style={selectStyle}
+            >
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <ArrowRightLeft size={18} className="text-slate-500 self-center" />
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium" style={{ color: '#f59e0b' }}>Período 2:</span>
-          <select value={period2.split('-')[0]} onChange={(e) => setPeriod2(`${e.target.value}-${period2.split('-')[1]}`)}
-            className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer" style={selectStyle}>
-            {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <select value={period2.split('-')[1]} onChange={(e) => setPeriod2(`${period2.split('-')[0]}-${e.target.value}`)}
-            className="px-3 py-1.5 rounded-lg text-sm outline-none cursor-pointer" style={selectStyle}>
-            {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </select>
-        </div>
+
+        <button
+          onClick={handleExportPDF}
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold border transition-all self-start sm:self-auto"
+          style={{
+            background: 'var(--bg-secondary)',
+            borderColor: 'var(--border)',
+            color: 'var(--text-primary)',
+          }}
+          title="Exportar Comparativo em PDF"
+        >
+          <FileText size={15} className="text-blue-400" />
+          <span>Exportar PDF</span>
+        </button>
       </div>
 
       <div className="rounded-2xl border overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
@@ -191,6 +269,45 @@ function DiarioTab() {
   useEffect(() => { load(); }, [load]);
 
   const totalValue = stats.reduce((acc, curr) => acc + curr.totalValue, 0);
+  const totalLiters = stats.reduce((acc, curr) => acc + curr.totalLiters, 0);
+
+  const handleExportPDF = () => {
+    if (stats.length === 0) {
+      toast.error('Nenhum dado diário para exportar.');
+      return;
+    }
+    const [y, m] = period.split('-');
+    const mLabel = MONTHS.find((mo) => mo.value === m)?.label ?? m;
+    const columns = ['Data', 'Gasto Total', 'Litros', 'Preço Médio/L'];
+    const rows = stats.map((s) => [
+      s.date.split('-').reverse().join('/'),
+      s.totalRefuels > 0 ? formatCurrency(s.totalValue) : 'R$ 0,00',
+      s.totalRefuels > 0 ? `${formatNumber(s.totalLiters, 2)} L` : '0 L',
+      s.totalRefuels > 0 ? `R$ ${formatNumber(s.avgUnitPrice, 3)}` : '—',
+    ]);
+    const foot = [
+      [
+        'Total do Mês',
+        formatCurrency(totalValue),
+        `${formatNumber(totalLiters, 2)} L`,
+        totalLiters > 0 ? `R$ ${formatNumber(totalValue / totalLiters, 3)}` : '—',
+      ],
+    ];
+    exportToPDF(
+      `Relatório Diário de Abastecimentos - ${mLabel}/${y}`,
+      columns,
+      rows,
+      `relatorio_diario_${period}`,
+      {
+        subtitle: `Evolução diária de abastecimentos e gastos (${mLabel}/${y})`,
+        summaryInfo: [
+          { label: 'Gasto Total', value: formatCurrency(totalValue) },
+          { label: 'Litros Consumidos', value: `${formatNumber(totalLiters, 0)} L` },
+        ],
+        foot,
+      }
+    );
+  };
 
   const chartOptions: ApexCharts.ApexOptions = {
     chart: { type: 'area', background: 'transparent', toolbar: { show: false } },
@@ -211,7 +328,7 @@ function DiarioTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <select value={period.split('-')[0]} onChange={(e) => setPeriod(`${e.target.value}-${period.split('-')[1]}`)}
             className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer"
@@ -223,6 +340,19 @@ function DiarioTab() {
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
             {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
+          <button
+            onClick={handleExportPDF}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-all"
+            style={{
+              background: 'var(--bg-card)',
+              borderColor: 'var(--border)',
+              color: 'var(--text-primary)',
+            }}
+            title="Exportar Diário em PDF"
+          >
+            <FileText size={15} className="text-purple-400" />
+            <span>Exportar PDF</span>
+          </button>
         </div>
         <div className="text-right">
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Total no Mês</p>
@@ -289,6 +419,50 @@ function MensalTab() {
   useEffect(() => { load(); }, [load]);
 
   const totalYear = stats.reduce((s, m) => s + m.totalValue, 0);
+  const totalLitersYear = stats.reduce((s, m) => s + m.totalLiters, 0);
+
+  const handleExportPDF = () => {
+    if (stats.length === 0) {
+      toast.error('Nenhum dado mensal para exportar.');
+      return;
+    }
+    const columns = ['Mês', 'Gasto', 'Litros', 'Abastecimentos', 'Preço Médio/L', 'Consumo (km/L)'];
+    const rows = stats.map((m) => {
+      const label = MONTHS.find((mo) => m.month.endsWith(`-${mo.value}`))?.label || m.month;
+      return [
+        `${label}/${year}`,
+        m.totalRefuels > 0 ? formatCurrency(m.totalValue) : 'R$ 0,00',
+        m.totalRefuels > 0 ? `${formatNumber(m.totalLiters, 0)} L` : '0 L',
+        m.totalRefuels > 0 ? m.totalRefuels : '0',
+        m.totalRefuels > 0 ? `R$ ${formatNumber(m.avgUnitPrice, 3)}` : '—',
+        m.totalRefuels > 0 ? `${formatNumber(m.avgKmL, 2)}` : '—',
+      ];
+    });
+    const foot = [
+      [
+        `Total Acumulado ${year}`,
+        formatCurrency(totalYear),
+        `${formatNumber(totalLitersYear, 0)} L`,
+        stats.reduce((s, m) => s + m.totalRefuels, 0),
+        totalLitersYear > 0 ? `R$ ${formatNumber(totalYear / totalLitersYear, 3)}` : '—',
+        '—',
+      ],
+    ];
+    exportToPDF(
+      `Relatório Mensal Consolidado - ${year}`,
+      columns,
+      rows,
+      `relatorio_mensal_${year}`,
+      {
+        subtitle: `Demonstrativo mensal consolidado de combustível (${year})`,
+        summaryInfo: [
+          { label: 'Gasto Total', value: formatCurrency(totalYear) },
+          { label: 'Volume Anual', value: `${formatNumber(totalLitersYear, 0)} L` },
+        ],
+        foot,
+      }
+    );
+  };
 
   const chartOptions: ApexCharts.ApexOptions = {
     chart: { type: 'bar', background: 'transparent', toolbar: { show: false } },
@@ -308,12 +482,27 @@ function MensalTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-          className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
-          {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-        </select>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
+            className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer font-bold"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
+            {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <button
+            onClick={handleExportPDF}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-all"
+            style={{
+              background: 'var(--bg-card)',
+              borderColor: 'var(--border)',
+              color: 'var(--text-primary)',
+            }}
+            title="Exportar Visão Mensal em PDF"
+          >
+            <FileText size={15} className="text-blue-400" />
+            <span>Exportar PDF</span>
+          </button>
+        </div>
         <div className="text-right">
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Total {year}</p>
           <p className="text-xl font-bold" style={{ color: '#60a5fa' }}>{formatCurrency(totalYear)}</p>
@@ -397,6 +586,43 @@ function AnualTab() {
   useEffect(() => { load(); }, [load]);
 
   const totalValue = stats.reduce((acc, curr) => acc + curr.totalValue, 0);
+  const totalLiters = stats.reduce((acc, curr) => acc + curr.totalLiters, 0);
+
+  const handleExportPDF = () => {
+    if (stats.length === 0) {
+      toast.error('Nenhum dado anual para exportar.');
+      return;
+    }
+    const columns = ['Ano', 'Gasto Total', 'Total Litros', 'Média km/L'];
+    const rows = stats.map((s) => [
+      s.year,
+      formatCurrency(s.totalValue),
+      `${formatNumber(s.totalLiters, 0)} L`,
+      formatNumber(s.avgKmL, 2),
+    ]);
+    const foot = [
+      [
+        'Total Global',
+        formatCurrency(totalValue),
+        `${formatNumber(totalLiters, 0)} L`,
+        '—',
+      ],
+    ];
+    exportToPDF(
+      'Análise Histórica Anual de Frota e Combustível',
+      columns,
+      rows,
+      'relatorio_historico_anual',
+      {
+        subtitle: 'Demonstrativo anual consolidado multi-ano',
+        summaryInfo: [
+          { label: 'Gasto Total Global', value: formatCurrency(totalValue) },
+          { label: 'Volume Total', value: `${formatNumber(totalLiters, 0)} L` },
+        ],
+        foot,
+      }
+    );
+  };
 
   const chartOptions: ApexCharts.ApexOptions = {
     chart: { type: 'bar', background: 'transparent', toolbar: { show: false } },
@@ -416,8 +642,23 @@ function AnualTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div><h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Análise Histórica Anual</h2></div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Análise Histórica Anual</h2>
+          <button
+            onClick={handleExportPDF}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
+            style={{
+              background: 'var(--bg-card)',
+              borderColor: 'var(--border)',
+              color: 'var(--text-primary)',
+            }}
+            title="Exportar Análise Anual em PDF"
+          >
+            <FileText size={14} className="text-cyan-400" />
+            <span>Exportar PDF</span>
+          </button>
+        </div>
         <div className="text-right">
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Gasto Total Global</p>
           <p className="text-xl font-bold" style={{ color: '#0ea5e9' }}>{formatCurrency(totalValue)}</p>
@@ -476,6 +717,49 @@ function PostosTab() {
 
   useEffect(() => { load(); }, [load]);
 
+  const totalValue = stats.reduce((acc, curr) => acc + curr.totalValue, 0);
+  const totalLiters = stats.reduce((acc, curr) => acc + curr.totalLiters, 0);
+
+  const handleExportPDF = () => {
+    if (stats.length === 0) {
+      toast.error('Nenhum dado de postos para exportar.');
+      return;
+    }
+    const columns = ['Posto', 'Cidade', 'Abastecimentos', 'Litros', 'Preço Médio/L', 'Gasto Total'];
+    const rows = stats.map((s) => [
+      s.stationName,
+      s.city,
+      s.totalRefuels,
+      `${formatNumber(s.totalLiters, 0)} L`,
+      `R$ ${formatNumber(s.avgUnitPrice, 3)}`,
+      formatCurrency(s.totalValue),
+    ]);
+    const foot = [
+      [
+        'Total',
+        `${stats.length} postos`,
+        stats.reduce((acc, curr) => acc + curr.totalRefuels, 0),
+        `${formatNumber(totalLiters, 0)} L`,
+        totalLiters > 0 ? `R$ ${formatNumber(totalValue / totalLiters, 3)}` : '—',
+        formatCurrency(totalValue),
+      ],
+    ];
+    exportToPDF(
+      'Relatório de Consumo por Posto de Combustível',
+      columns,
+      rows,
+      'relatorio_postos_combustivel',
+      {
+        subtitle: 'Ranking e análise de volume, preço e gastos por posto',
+        summaryInfo: [
+          { label: 'Total Geral', value: formatCurrency(totalValue) },
+          { label: 'Volume Total', value: `${formatNumber(totalLiters, 0)} L` },
+        ],
+        foot,
+      }
+    );
+  };
+
   // Top 10 for chart
   const top10 = stats.slice(0, 10);
 
@@ -499,8 +783,25 @@ function PostosTab() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Consumo e Gastos por Posto</h3>
+        <button
+          onClick={handleExportPDF}
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold border transition-all self-start sm:self-auto"
+          style={{
+            background: 'var(--bg-card)',
+            borderColor: 'var(--border)',
+            color: 'var(--text-primary)',
+          }}
+          title="Exportar Relatório de Postos em PDF"
+        >
+          <FileText size={15} className="text-amber-400" />
+          <span>Exportar PDF</span>
+        </button>
+      </div>
+
       <div className="rounded-2xl p-6 border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-        <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Top 10 Postos (Maior Gasto)</h3>
+        <h4 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Top 10 Postos (Maior Gasto)</h4>
         {loading ? <Skeleton className="h-72" /> : (
           <ApexChart type="bar" height={320} series={[{ name: 'Gasto', data: top10.map((m) => Math.round(m.totalValue)) }]} options={chartOptions} />
         )}
@@ -556,6 +857,49 @@ function VeiculosTab() {
 
   useEffect(() => { load(); }, [load]);
 
+  const totalValue = stats.reduce((acc, curr) => acc + curr.totalValue, 0);
+  const totalLiters = stats.reduce((acc, curr) => acc + curr.totalLiters, 0);
+
+  const handleExportPDF = () => {
+    if (stats.length === 0) {
+      toast.error('Nenhum dado de veículos para exportar.');
+      return;
+    }
+    const columns = ['Placa', 'Modelo', 'Filial', 'Litros', 'Média km/L', 'Gasto Total'];
+    const rows = stats.map((v) => [
+      v.vehiclePlate,
+      v.vehicleModel,
+      v.vehicleBranch,
+      `${formatNumber(v.totalLiters, 0)} L`,
+      `${formatNumber(v.avgKmL, 2)}`,
+      formatCurrency(v.totalValue),
+    ]);
+    const foot = [
+      [
+        'Total',
+        `${stats.length} veículos`,
+        '—',
+        `${formatNumber(totalLiters, 0)} L`,
+        '—',
+        formatCurrency(totalValue),
+      ],
+    ];
+    exportToPDF(
+      'Relatório de Consumo por Veículo da Frota',
+      columns,
+      rows,
+      'relatorio_veiculos_frota',
+      {
+        subtitle: 'Ranking de consumo, eficiência e gastos por veículo',
+        summaryInfo: [
+          { label: 'Gasto Total da Frota', value: formatCurrency(totalValue) },
+          { label: 'Litros Totais', value: `${formatNumber(totalLiters, 0)} L` },
+        ],
+        foot,
+      }
+    );
+  };
+
   // Top 10 for chart
   const top10 = stats.slice(0, 10);
 
@@ -579,8 +923,25 @@ function VeiculosTab() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Consumo e Eficiência por Veículo</h3>
+        <button
+          onClick={handleExportPDF}
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold border transition-all self-start sm:self-auto"
+          style={{
+            background: 'var(--bg-card)',
+            borderColor: 'var(--border)',
+            color: 'var(--text-primary)',
+          }}
+          title="Exportar Relatório de Veículos em PDF"
+        >
+          <FileText size={15} className="text-rose-400" />
+          <span>Exportar PDF</span>
+        </button>
+      </div>
+
       <div className="rounded-2xl p-6 border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-        <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Top 10 Veículos (Maior Gasto)</h3>
+        <h4 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Top 10 Veículos (Maior Gasto)</h4>
         {loading ? <Skeleton className="h-72" /> : (
           <ApexChart type="bar" height={320} series={[{ name: 'Gasto', data: top10.map((m) => Math.round(m.totalValue)) }]} options={chartOptions} />
         )}

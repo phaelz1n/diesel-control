@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import {
   DollarSign, Droplets, Fuel, TrendingUp, Activity, BarChart3,
-  RefreshCw, ChevronRight, AlertTriangle, Calendar,
+  RefreshCw, ChevronRight, AlertTriangle, Calendar, FileText
 } from 'lucide-react';
 import { getDashboardKPIs, getMonthlyStats, getStationStats, getVehicleStats, getRefuels, getRefuelsForPeriod } from '@/services/refuels';
 import { DashboardKPIs, MonthlyStats, StationStats, VehicleStats, Refuel, DashboardFilters } from '@/lib/types';
@@ -12,6 +12,7 @@ import { formatCurrency, formatNumber, formatLiters, formatKmL, formatDateTime, 
 import { MONTHS, YEARS, MONTHS_SHORT } from '@/lib/constants';
 import { collection, getDocs } from 'firebase/firestore';
 import { db, COLLECTIONS } from '@/lib/firebase/firestore';
+import { exportToPDF } from '@/lib/utils/exportUtils';
 import Link from 'next/link';
 
 // Lazy load charts (ApexCharts requires browser)
@@ -382,6 +383,34 @@ export default function DashboardPage() {
     ? MONTHS.find((m) => filters.month?.endsWith(`-${m.value}`))?.label ?? 'Mês'
     : 'Ano';
 
+  const handleExportDashboardPDF = () => {
+    if (!kpis) return;
+    const columns = ['Métrica / Indicador', 'Valor no Período'];
+    const rows = [
+      ['Saída Financeira Real (NFs + Vibra)', formatCurrency(kpis.totalSpent)],
+      ['Custo de Consumo (Abastecimentos)', formatCurrency(kpis.totalValue)],
+      ['Litros Abastecidos na Frota', formatLiters(kpis.totalLiters)],
+      ['Quantidade de Abastecimentos', `${formatNumber(kpis.totalRefuels, 0)} abastecimentos`],
+      ['Preço Médio por Litro', `R$ ${formatNumber(kpis.avgUnitPrice, 3)}/L`],
+      ['Média de Eficiência da Frota', `${formatNumber(kpis.avgKmL, 2)} km/L`],
+    ];
+
+    exportToPDF(
+      `Relatório Executivo DieselControl - ${monthLabel} ${filters.year}`,
+      columns,
+      rows,
+      `dashboard_executivo_${filters.month || filters.year}`,
+      {
+        subtitle: `Demonstrativo gerencial de frota e combustível (${monthLabel}/${filters.year})`,
+        summaryInfo: [
+          { label: 'Saída Real de Caixa', value: formatCurrency(kpis.totalSpent) },
+          { label: 'Litros Abastecidos', value: formatLiters(kpis.totalLiters) },
+          { label: 'Consumo Médio', value: `${formatNumber(kpis.avgKmL, 2)} km/L` },
+        ],
+      }
+    );
+  };
+
   return (
     <div className="page-container animate-fade-in">
       {/* Header */}
@@ -395,13 +424,28 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <FilterBar filters={filters} onChange={setFilters} />
+          <button
+            onClick={handleExportDashboardPDF}
+            disabled={loading || !kpis}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold border transition-all"
+            style={{
+              background: 'var(--bg-card)',
+              borderColor: 'var(--border)',
+              color: 'var(--text-primary)',
+            }}
+            title="Exportar Resumo Executivo em PDF"
+          >
+            <FileText size={15} className="text-blue-400" />
+            <span className="hidden sm:inline">Exportar PDF</span>
+          </button>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
             className="p-2 rounded-xl transition-colors hover:bg-white/5"
             style={{ color: 'var(--text-muted)', border: '1px solid var(--border)' }}
+            title="Atualizar dados"
           >
             <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
           </button>
