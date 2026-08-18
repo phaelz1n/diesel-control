@@ -57,7 +57,7 @@ export async function findSimilarStations(name: string): Promise<Station[]> {
 // CREATE STATION
 // ============================================================
 export async function createStation(
-  data: Omit<Station, 'id' | 'createdAt' | 'updatedAt'>,
+  data: Omit<Station, 'id' | 'createdAt' | 'updatedAt' | 'normalizedName' | 'createdBy' | 'updatedBy'>,
   userId: string
 ): Promise<string> {
   const docRef = await addDoc(collection(db, COLLECTIONS.STATIONS), {

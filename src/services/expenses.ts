@@ -8,6 +8,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db, COLLECTIONS, serializeQuerySnapshot } from '@/lib/firebase/firestore';
@@ -26,7 +27,7 @@ export async function getMonthlyExpenses(competence?: string): Promise<MonthlyEx
 }
 
 export async function createMonthlyExpense(
-  data: Omit<MonthlyExpense, 'id' | 'createdAt' | 'updatedAt'>,
+  data: Omit<MonthlyExpense, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy'>,
   userId: string
 ): Promise<string> {
   const docRef = await addDoc(collection(db, COLLECTIONS.MONTHLY_EXPENSES), {
@@ -67,7 +68,7 @@ export async function getVibraOrders(competence?: string): Promise<VibraOrder[]>
 }
 
 export async function createVibraOrder(
-  data: Omit<VibraOrder, 'id' | 'createdAt' | 'updatedAt' | 'totalValue'> & { liters: number; unitPrice: number },
+  data: Omit<VibraOrder, 'id' | 'createdAt' | 'updatedAt' | 'totalValue' | 'createdBy' | 'updatedBy'> & { liters: number; unitPrice: number },
   userId: string
 ): Promise<string> {
   const totalValue = calcTotalValue(data.liters, data.unitPrice);
@@ -106,6 +107,23 @@ export async function updateVibraOrder(
 
 export async function deleteVibraOrder(id: string): Promise<void> {
   await deleteDoc(doc(db, COLLECTIONS.VIBRA_ORDERS, id));
+}
+
+export async function deleteVibraOrdersByCompetence(competence: string): Promise<number> {
+  const q = query(collection(db, COLLECTIONS.VIBRA_ORDERS), where('competence', '==', competence));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return 0;
+
+  const batchSize = 500;
+  let count = 0;
+  for (let i = 0; i < snapshot.docs.length; i += batchSize) {
+    const chunk = snapshot.docs.slice(i, i + batchSize);
+    const batch = writeBatch(db);
+    chunk.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    count += chunk.length;
+  }
+  return count;
 }
 
 // ============================================================

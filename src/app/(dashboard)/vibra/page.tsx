@@ -2,20 +2,110 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Droplets, DollarSign, Upload, Download, X } from 'lucide-react';
-import { getVibraOrders, deleteVibraOrder, getVibraSummary, VibraSummary } from '@/services/expenses';
-import { VibraOrder } from '@/lib/types';
+import { Plus, Edit2, Trash2, Droplets, DollarSign, Upload, Download, X, AlertTriangle } from 'lucide-react';
+import {
+  getVibraOrders,
+  deleteVibraOrder,
+  deleteVibraOrdersByCompetence,
+  getVibraSummary,
+  createVibraOrder,
+  updateVibraOrder,
+  VibraSummary,
+} from '@/services/expenses';
+import { VibraOrder, VibraStatus } from '@/lib/types';
 import { formatCurrency, formatNumber, formatDate, toYearMonth, cn } from '@/lib/utils';
 import { MONTHS, YEARS, VIBRA_STATUS_LABELS } from '@/lib/constants';
 import { usePermissions } from '@/lib/hooks/usePermissions';
 import { useAuth } from '@/lib/hooks/useAuth';
 import Papa from 'papaparse';
-import { batchCreate, COLLECTIONS, createDocument } from '@/lib/firebase/firestore';
-import { Timestamp } from 'firebase/firestore';
+import { batchCreate, COLLECTIONS } from '@/lib/firebase/firestore';
 
 function Skeleton({ className }: { className?: string }) {
   return <div className={cn('skeleton', className)} />;
 }
+
+// Helpers for robust CSV parsing
+function normKey(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function getColValue(row: Record<string, any>, ...keys: string[]): string | undefined {
+  const rowKeys = Object.keys(row);
+  for (const k of keys) {
+    const target = normKey(k);
+    const foundKey = rowKeys.find((rk) => normKey(rk) === target);
+    if (
+      foundKey !== undefined &&
+      row[foundKey] !== undefined &&
+      row[foundKey] !== null &&
+      String(row[foundKey]).trim() !== ''
+    ) {
+      return String(row[foundKey]).trim();
+    }
+  }
+  return undefined;
+}
+
+function parseBRNumber(val: any): number {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (!val) return 0;
+  let str = String(val).trim().replace(/^R\$\s*/i, '').trim();
+  if (str.includes(',') && str.includes('.')) {
+    if (str.indexOf('.') < str.indexOf(',')) {
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+      str = str.replace(/,/g, '');
+    }
+  } else if (str.includes(',')) {
+    str = str.replace(',', '.');
+  }
+  const n = parseFloat(str);
+  return isNaN(n) ? 0 : n;
+}
+
+function parseBRDate(str?: string): Date | null {
+  if (!str) return null;
+  const clean = String(str).trim();
+  const parts = clean.split(/[\/\-\.]/);
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      // YYYY-MM-DD
+      const y = Number(parts[0]);
+      const m = Number(parts[1]) - 1;
+      const d = Number(parts[2]);
+      const date = new Date(y, m, d);
+      return isNaN(date.getTime()) ? null : date;
+    } else {
+      // DD/MM/YYYY or DD/MM/YY
+      const d = Number(parts[0]);
+      const m = Number(parts[1]) - 1;
+      const y = Number(parts[2].length === 2 ? `20${parts[2]}` : parts[2]);
+      const date = new Date(y, m, d);
+      return isNaN(date.getTime()) ? null : date;
+    }
+  }
+  const timestamp = Date.parse(clean);
+  return isNaN(timestamp) ? null : new Date(timestamp);
+}
+
+const MONTH_NAME_MAP: Record<string, string> = {
+  'JANEIRO': '01', 'JAN': '01',
+  'FEVEREIRO': '02', 'FEV': '02',
+  'MARÇO': '03', 'MARCO': '03', 'MAR': '03',
+  'ABRIL': '04', 'ABR': '04',
+  'MAIO': '05', 'MAI': '05',
+  'JUNHO': '06', 'JUN': '06',
+  'JULHO': '07', 'JUL': '07',
+  'AGOSTO': '08', 'AGO': '08',
+  'SETEMBRO': '09', 'SET': '09',
+  'OUTUBRO': '10', 'OUT': '10',
+  'NOVEMBRO': '11', 'NOV': '11',
+  'DEZEMBRO': '12', 'DEZ': '12',
+};
 
 export default function VibraPage() {
   const { isAdmin } = usePermissions();
@@ -26,16 +116,25 @@ export default function VibraPage() {
   const [summary, setSummary] = useState<VibraSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [importing, setImporting] = useState(false);
+  
+  // Modal state (Create & Edit)
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<VibraOrder | null>(null);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
-    issueDate: formatDate(new Date()).split('/').reverse().join('-'), // YYYY-MM-DD
+    issueDate: formatDate(new Date()).split('/').reverse().join('-'),
+    paymentDate: '',
+    orderNumber: '',
+    invoiceNumber: '',
     liters: '',
     unitPrice: '',
+    status: 'PAID' as VibraStatus,
   });
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [selYear, selMonth] = competence.split('-');
 
   const load = useCallback(async () => {
@@ -47,78 +146,157 @@ export default function VibraPage() {
       ]);
       setOrders(o);
       setSummary(s);
-    } catch (err) { console.error("Erro detalhado:", err);
+    } catch (err) {
+      console.error('Erro detalhado:', err);
       toast.error('Erro ao carregar dados Vibra.');
     } finally {
       setLoading(false);
     }
   }, [competence]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const handleDelete = async (id: string) => {
-    if (confirmDelete !== id) { setConfirmDelete(id); return; }
+    if (confirmDelete !== id) {
+      setConfirmDelete(id);
+      return;
+    }
     try {
       await deleteVibraOrder(id);
       setOrders((prev) => prev.filter((o) => o.id !== id));
       toast.success('Pedido excluído.');
-    } catch (err) { console.error("Erro detalhado:", err);
+      load();
+    } catch (err) {
+      console.error('Erro ao excluir:', err);
       toast.error('Erro ao excluir.');
     } finally {
       setConfirmDelete(null);
     }
   };
 
-  const selectStyle: React.CSSProperties = {
-    background: 'var(--bg-card)',
-    border: '1px solid var(--border)',
-    color: 'var(--text-primary)',
-  };
-
-  const monthMap: Record<string, string> = {
-    'JANEIRO': '01', 'FEVEREIRO': '02', 'MARÇO': '03', 'MARCO': '03',
-    'ABRIL': '04', 'MAIO': '05', 'JUNHO': '06', 'JULHO': '07',
-    'AGOSTO': '08', 'SETEMBRO': '09', 'OUTUBRO': '10', 'NOVEMBRO': '11', 'DEZEMBRO': '12'
+  const handleClearPeriod = async () => {
+    if (!confirmClearAll) {
+      setConfirmClearAll(true);
+      return;
+    }
+    setClearing(true);
+    try {
+      const deletedCount = await deleteVibraOrdersByCompetence(competence);
+      toast.success(`${deletedCount} faturas de ${selMonth}/${selYear} removidas.`);
+      setConfirmClearAll(false);
+      load();
+    } catch (err) {
+      console.error('Erro ao limpar período:', err);
+      toast.error('Erro ao limpar faturas do período.');
+    } finally {
+      setClearing(false);
+    }
   };
 
   const handleDownloadTemplate = () => {
-    const csvContent = "Mês,Emissão,Pagamento,Litros Pedidos,Vlr Unit (R$),Vlr Total\nAGOSTO,15/08/2026,,15000,5.80,87000.00";
-    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csvContent =
+      'Mês,Emissão,Pagamento,Litros Pedidos,Vlr Unit (R$),Vlr Total,Nº Pedido\nAGOSTO,15/08/2026,29/08/2026,15000,5.80,87000.00,4231521';
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    const link = document.createElement('a');
     link.href = url;
-    link.setAttribute("download", "modelo_importacao_vibra.csv");
+    link.setAttribute('download', 'modelo_importacao_vibra.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  const handleCreateOrder = async (e: React.FormEvent) => {
+  const handleOpenCreateModal = () => {
+    setEditingOrder(null);
+    setFormData({
+      issueDate: `${selYear}-${selMonth}-01`,
+      paymentDate: '',
+      orderNumber: '',
+      invoiceNumber: '',
+      liters: '',
+      unitPrice: '',
+      status: 'PAID',
+    });
+    setModalOpen(true);
+  };
+
+  const handleOpenEditModal = (order: VibraOrder) => {
+    setEditingOrder(order);
+    const formatDateInput = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    setFormData({
+      issueDate: formatDateInput(order.issueDate),
+      paymentDate: order.paymentDate ? formatDateInput(order.paymentDate) : '',
+      orderNumber: order.orderNumber || '',
+      invoiceNumber: order.invoiceNumber || '',
+      liters: String(order.liters),
+      unitPrice: String(order.unitPrice),
+      status: order.status || 'PAID',
+    });
+    setModalOpen(true);
+  };
+
+  const handleSaveOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     setSaving(true);
     try {
-      const liters = parseFloat(formData.liters);
-      const unitPrice = parseFloat(formData.unitPrice);
-      const totalValue = liters * unitPrice;
-      const [year, month, day] = formData.issueDate.split('-');
+      const liters = parseBRNumber(formData.liters);
+      const unitPrice = parseBRNumber(formData.unitPrice);
+      const totalValue = +(liters * unitPrice).toFixed(2);
       
-      const newOrder = {
-        competence: `${year}-${month}`,
-        issueDate: Timestamp.fromDate(new Date(Number(year), Number(month) - 1, Number(day))),
-        paymentDate: null,
-        liters,
-        unitPrice,
-        totalValue,
-        status: 'PAID' as const,
-      };
+      const issueDate = parseBRDate(formData.issueDate) || new Date();
+      const paymentDate = formData.paymentDate ? parseBRDate(formData.paymentDate) : undefined;
+      
+      // Determine competence based on paymentDate or issueDate
+      const compDate = paymentDate || issueDate;
+      const orderCompetence = `${compDate.getFullYear()}-${String(compDate.getMonth() + 1).padStart(2, '0')}`;
 
-      await createDocument(COLLECTIONS.VIBRA_ORDERS, newOrder, user.uid);
-      toast.success('Pedido criado com sucesso!');
+      if (editingOrder) {
+        await updateVibraOrder(
+          editingOrder.id,
+          {
+            competence: orderCompetence,
+            issueDate,
+            paymentDate: paymentDate || undefined,
+            liters,
+            unitPrice,
+            totalValue,
+            orderNumber: formData.orderNumber ? formData.orderNumber.trim() : undefined,
+            invoiceNumber: formData.invoiceNumber ? formData.invoiceNumber.trim() : undefined,
+            status: formData.status,
+          },
+          user.uid
+        );
+        toast.success('Pedido atualizado com sucesso!');
+      } else {
+        await createVibraOrder(
+          {
+            competence: orderCompetence,
+            issueDate,
+            paymentDate: paymentDate || undefined,
+            liters,
+            unitPrice,
+            orderNumber: formData.orderNumber ? formData.orderNumber.trim() : undefined,
+            invoiceNumber: formData.invoiceNumber ? formData.invoiceNumber.trim() : undefined,
+            status: formData.status,
+          },
+          user.uid
+        );
+        toast.success('Pedido criado com sucesso!');
+      }
+
       setModalOpen(false);
       load();
     } catch (err) {
-      toast.error('Erro ao criar pedido');
+      console.error('Erro ao salvar pedido:', err);
+      toast.error('Erro ao salvar pedido');
     } finally {
       setSaving(false);
     }
@@ -131,38 +309,93 @@ export default function VibraPage() {
     setImporting(true);
     Papa.parse(file, {
       header: true,
-      skipEmptyLines: true,
+      skipEmptyLines: 'greedy',
       complete: async (results: any) => {
         try {
-          const rows = results.data as any[];
+          const rows = results.data as Record<string, any>[];
+          if (!rows || rows.length === 0) {
+            toast.error('Arquivo vazio ou formato não reconhecido.');
+            return;
+          }
+
           const newOrders: Omit<VibraOrder, 'id' | 'createdAt' | 'updatedAt'>[] = [];
-          
-          let currentMonth = 'JANEIRO';
+          let currentMonthName = '';
+          const competencesEncountered = new Set<string>();
 
           for (const row of rows) {
-            if (row['Mês']) {
-              currentMonth = String(row['Mês']).toUpperCase().trim();
-            }
-            if (!row['Emissão'] || !row['Litros Pedidos']) continue;
+            // Check first column value (could be "Janeiro", "Fevereiro", or an order number "4202207")
+            const firstColKey = Object.keys(row)[0];
+            const firstColVal = firstColKey ? String(row[firstColKey] || '').trim() : '';
 
-            const parseDate = (str: string) => {
-              const parts = str.split('/');
-              if (parts.length === 3) return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
-              return new Date();
-            };
-
-            const issueDate = parseDate(row['Emissão']);
-            const paymentDate = row['Pagamento'] ? parseDate(row['Pagamento']) : undefined;
+            // Check if first col or Mês column is a month name
+            const rawMonth = getColValue(row, 'Mês', 'Mes', 'Competência', 'Competencia') || firstColVal;
+            const upperMonth = normKey(rawMonth).toUpperCase();
             
-            const mm = monthMap[currentMonth] || '01';
+            let detectedMonthCode: string | undefined = undefined;
+            for (const [mName, mCode] of Object.entries(MONTH_NAME_MAP)) {
+              if (normKey(mName) === upperMonth) {
+                detectedMonthCode = mCode;
+                currentMonthName = mName;
+                break;
+              }
+            }
+
+            // Dates
+            const emissaoStr = getColValue(row, 'Emissão', 'Emissao', 'Data Emissão', 'Data', 'DataEmissao');
+            const pagamentoStr = getColValue(row, 'Pagamento', 'Data Pagamento', 'Vencimento', 'Data Vencimento', 'DataPagamento');
+            const litrosStr = getColValue(row, 'Litros Pedidos', 'Litros', 'Volume', 'Qtd', 'Quantidade', 'LitrosPedidos');
+            const unitPriceStr = getColValue(row, 'Vlr Unit (R$)', 'Vlr Unit', 'Valor Unitario', 'Valor Unitário', 'Preço/L', 'Preco/L', 'Preço', 'Preco');
+            const totalValueStr = getColValue(row, 'Vlr Total', 'Valor Total', 'Total', 'Valor', 'VlrTotal');
+            
+            // Order number / Invoice number
+            let orderNumber = getColValue(row, 'Nº Pedido / NF', 'Nº Pedido', 'Pedido', 'Ordem', 'Numero Pedido', 'NF', 'Nota Fiscal', 'Nº NF');
+            // If first column was NOT a month name, but is numeric/alphanumeric digits (like "4202207"), use it as order number
+            if (!orderNumber && firstColVal && !detectedMonthCode && /^\d+$/.test(firstColVal)) {
+              orderNumber = firstColVal;
+            }
+
+            if (!emissaoStr && !pagamentoStr && !litrosStr) {
+              continue; // Skip invalid or empty row
+            }
+
+            const issueDate = parseBRDate(emissaoStr) || parseBRDate(pagamentoStr) || new Date();
+            const paymentDate = parseBRDate(pagamentoStr) || undefined;
+
+            // Determine competence:
+            // 1. If payment date exists, use its YYYY-MM
+            // 2. Else if issue date exists, use its YYYY-MM
+            // 3. Else if month code was identified, combine with year
+            let rowCompetence = competence;
+            if (paymentDate) {
+              rowCompetence = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
+            } else if (issueDate) {
+              rowCompetence = `${issueDate.getFullYear()}-${String(issueDate.getMonth() + 1).padStart(2, '0')}`;
+            } else if (detectedMonthCode) {
+              const yr = Number(selYear) || new Date().getFullYear();
+              rowCompetence = `${yr}-${detectedMonthCode}`;
+            }
+
+            competencesEncountered.add(rowCompetence);
+
+            const liters = parseBRNumber(litrosStr);
+            let unitPrice = parseBRNumber(unitPriceStr);
+            let totalValue = parseBRNumber(totalValueStr);
+
+            if (totalValue === 0 && liters > 0 && unitPrice > 0) {
+              totalValue = +(liters * unitPrice).toFixed(2);
+            }
+            if (unitPrice === 0 && liters > 0 && totalValue > 0) {
+              unitPrice = +(totalValue / liters).toFixed(3);
+            }
 
             newOrders.push({
-              competence: `2026-${mm}`, // Hardcoded year based on sheet
+              competence: rowCompetence,
               issueDate: issueDate,
-              paymentDate: paymentDate,
-              liters: parseFloat(row['Litros Pedidos']),
-              unitPrice: parseFloat(row['Vlr Unit (R$)'] || '0'),
-              totalValue: parseFloat(row['Vlr Total'] || '0'),
+              paymentDate: paymentDate || undefined,
+              liters,
+              unitPrice,
+              totalValue,
+              orderNumber: orderNumber ? String(orderNumber).trim() : undefined,
               status: 'PAID',
               createdBy: user.uid,
               updatedBy: user.uid,
@@ -171,67 +404,145 @@ export default function VibraPage() {
 
           if (newOrders.length > 0) {
             await batchCreate(COLLECTIONS.VIBRA_ORDERS, newOrders, user.uid);
-            toast.success(`${newOrders.length} pedidos Vibra importados!`);
+            
+            const countMonths = competencesEncountered.size;
+            toast.success(
+              `${newOrders.length} pedidos Vibra importados em ${countMonths} ${
+                countMonths === 1 ? 'mês' : 'meses'
+              }!`
+            );
+            
+            // If current competence wasn't among the imported, but there are imports, reload
             load();
+          } else {
+            toast.error('Nenhum dado válido encontrado no CSV para importar.');
           }
         } catch (err) {
-          console.error(err);
-          toast.error('Erro na importação');
+          console.error('Erro na importação:', err);
+          toast.error('Erro ao processar o arquivo CSV.');
         } finally {
           setImporting(false);
           if (fileInputRef.current) fileInputRef.current.value = '';
         }
-      }
+      },
+      error: (err) => {
+        console.error('Papa parse error:', err);
+        toast.error('Falha ao ler o arquivo CSV.');
+        setImporting(false);
+      },
     });
+  };
+
+  const selectStyle: React.CSSProperties = {
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border)',
+    color: 'var(--text-primary)',
   };
 
   return (
     <div className="page-container animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Controle Vibra</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Pedidos e notas de combustível Vibra</p>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+            Controle Vibra
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+            Pedidos e notas de combustível Vibra
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <select value={selYear} onChange={(e) => setCompetence(`${e.target.value}-${selMonth}`)}
-            className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer" style={selectStyle}>
-            {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+        <div className="flex items-center flex-wrap gap-2 sm:gap-3">
+          <select
+            value={selYear}
+            onChange={(e) => setCompetence(`${e.target.value}-${selMonth}`)}
+            className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer"
+            style={selectStyle}
+          >
+            {YEARS.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
           </select>
-          <select value={selMonth} onChange={(e) => setCompetence(`${selYear}-${e.target.value}`)}
-            className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer" style={selectStyle}>
-            {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          <select
+            value={selMonth}
+            onChange={(e) => setCompetence(`${selYear}-${e.target.value}`)}
+            className="px-3 py-2 rounded-xl text-sm outline-none cursor-pointer"
+            style={selectStyle}
+          >
+            {MONTHS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
           </select>
+
           {isAdmin && (
-            <div className="flex gap-2">
-              <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
+            <div className="flex items-center flex-wrap gap-2">
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+              />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={importing}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors"
+                style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-primary)',
+                }}
+                title="Importar planilha de faturas Vibra"
               >
                 <Upload size={16} /> {importing ? 'Importando...' : 'Importar CSV'}
               </button>
               <button
                 onClick={handleDownloadTemplate}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors"
+                style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-primary)',
+                }}
+                title="Baixar modelo de CSV"
               >
-                <Download size={16} /> Baixar Modelo
+                <Download size={16} /> Modelo
               </button>
               <button
-                onClick={() => setModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
-                style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)', boxShadow: '0 2px 12px rgba(37,99,235,0.4)' }}
+                onClick={handleOpenCreateModal}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-white shadow-lg transition-all active:scale-95"
+                style={{
+                  background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+                  boxShadow: '0 2px 12px rgba(37,99,235,0.4)',
+                }}
               >
                 <Plus size={16} /> Novo Pedido
               </button>
+
+              {orders.length > 0 && (
+                <button
+                  onClick={handleClearPeriod}
+                  disabled={clearing}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors border',
+                    confirmClearAll
+                      ? 'bg-red-500 text-white border-red-600 animate-pulse'
+                      : 'hover:bg-red-500/10 text-red-400 border-red-500/20'
+                  )}
+                  title="Limpar todos os pedidos importados deste mês selecionado"
+                >
+                  <Trash2 size={15} />
+                  {clearing ? 'Limpando...' : confirmClearAll ? 'Confirmar exclusão de todas?' : 'Limpar Mês'}
+                </button>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Summary */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {loading ? (
           Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)
@@ -239,36 +550,55 @@ export default function VibraPage() {
           <>
             <div className="kpi-card">
               <Droplets size={20} className="text-blue-400 mb-2" />
-              <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{formatNumber(summary.totalLiters, 0)} L</p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Total Litros</p>
+              <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                {formatNumber(summary.totalLiters, 0)} L
+              </p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Total Litros
+              </p>
             </div>
             <div className="kpi-card">
               <DollarSign size={20} className="text-green-400 mb-2" />
-              <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(summary.totalValue)}</p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Total Gasto</p>
+              <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                {formatCurrency(summary.totalValue)}
+              </p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Total Gasto
+              </p>
             </div>
             <div className="kpi-card">
               <p className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
                 R$ {formatNumber(summary.avgUnitPrice, 3)}/L
               </p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Preço Médio</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Preço Médio
+              </p>
             </div>
             <div className="kpi-card">
-              <p className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{summary.orderCount}</p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Pedidos</p>
+              <p className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
+                {summary.orderCount}
+              </p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Pedidos
+              </p>
             </div>
             <div className="kpi-card">
               <p className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
                 {formatNumber(summary.avgLitersPerOrder, 0)} L
               </p>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Média/Pedido</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Média/Pedido
+              </p>
             </div>
           </>
         ) : null}
       </div>
 
       {/* Table */}
-      <div className="rounded-2xl border overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+      <div
+        className="rounded-2xl border overflow-hidden"
+        style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+      >
         <div className="overflow-x-auto">
           <table className="w-full data-table min-w-[750px]">
             <thead>
@@ -280,61 +610,96 @@ export default function VibraPage() {
                 <th className="text-right px-4 py-3">Total</th>
                 <th className="text-center px-4 py-3">Pagamento</th>
                 <th className="text-center px-4 py-3">Status</th>
-                {isAdmin && <th className="w-20 px-4 py-3" />}
+                {isAdmin && <th className="w-24 px-4 py-3 text-right">Ações</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={i}>{Array.from({ length: 8 }).map((__, j) => (
-                    <td key={j} className="px-4 py-3"><Skeleton className="h-5" /></td>
-                  ))}</tr>
+                  <tr key={i}>
+                    {Array.from({ length: 8 }).map((__, j) => (
+                      <td key={j} className="px-4 py-3">
+                        <Skeleton className="h-5" />
+                      </td>
+                    ))}
+                  </tr>
                 ))
               ) : orders.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-16 text-center">
                     <Droplets size={40} className="mx-auto mb-3 text-blue-400/20" />
-                    <p style={{ color: 'var(--text-muted)' }}>Nenhum pedido Vibra para este período.</p>
+                    <p style={{ color: 'var(--text-muted)' }}>
+                      Nenhum pedido Vibra para este período ({selMonth}/{selYear}).
+                    </p>
+                    <p className="text-xs mt-1 text-slate-500">
+                      Utilize &ldquo;Importar CSV&rdquo; para carregar os pedidos ou selecione outro mês acima.
+                    </p>
                   </td>
                 </tr>
               ) : (
                 orders.map((o) => (
-                  <tr key={o.id} className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-                    <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{formatDate(o.issueDate)}</td>
-                    <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-primary)' }}>
-                      {o.orderNumber ?? '—'}
-                      {o.invoiceNumber && <span style={{ color: 'var(--text-muted)' }}> / NF {o.invoiceNumber}</span>}
+                  <tr key={o.id} className="border-t hover:bg-white/[0.02] transition-colors" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {formatDate(o.issueDate)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    <td className="px-4 py-3 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {o.orderNumber ? (
+                        <span>Pedido #{o.orderNumber}</span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)' }}>—</span>
+                      )}
+                      {o.invoiceNumber && (
+                        <span className="ml-1 text-xs opacity-75 font-normal" style={{ color: 'var(--text-secondary)' }}>
+                          (NF: {o.invoiceNumber})
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
                       {formatNumber(o.liters, 2)} L
                     </td>
                     <td className="px-4 py-3 text-right text-sm" style={{ color: 'var(--text-secondary)' }}>
                       R$ {formatNumber(o.unitPrice, 3)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                    <td className="px-4 py-3 text-right text-sm font-bold" style={{ color: '#60a5fa' }}>
                       {formatCurrency(o.totalValue)}
                     </td>
                     <td className="px-4 py-3 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
                       {o.paymentDate ? formatDate(o.paymentDate) : '—'}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={cn(
-                        'inline-flex items-center text-xs font-medium px-2.5 py-0.5 rounded-full',
-                        o.status === 'PAID' ? 'badge-paid' : o.status === 'PENDING' ? 'badge-pending' : 'badge-partial'
-                      )}>
-                        {VIBRA_STATUS_LABELS[o.status]}
+                      <span
+                        className={cn(
+                          'inline-flex items-center text-xs font-medium px-2.5 py-0.5 rounded-full',
+                          o.status === 'PAID'
+                            ? 'badge-paid'
+                            : o.status === 'PENDING'
+                            ? 'badge-pending'
+                            : 'badge-partial'
+                        )}
+                      >
+                        {VIBRA_STATUS_LABELS[o.status] || o.status}
                       </span>
                     </td>
                     {isAdmin && (
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <button className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: 'var(--text-muted)' }}>
+                          <button
+                            onClick={() => handleOpenEditModal(o)}
+                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                            style={{ color: 'var(--text-secondary)' }}
+                            title="Editar pedido"
+                          >
                             <Edit2 size={14} />
                           </button>
                           <button
                             onClick={() => handleDelete(o.id)}
-                            className={cn('p-1.5 rounded-lg',
-                              confirmDelete === o.id ? 'bg-red-500/20 text-red-400' : 'hover:bg-red-500/10 text-red-400/40 hover:text-red-400')}
+                            className={cn(
+                              'p-1.5 rounded-lg transition-colors',
+                              confirmDelete === o.id
+                                ? 'bg-red-500/20 text-red-400'
+                                : 'hover:bg-red-500/10 text-red-400/50 hover:text-red-400'
+                            )}
+                            title={confirmDelete === o.id ? 'Clique para confirmar exclusão' : 'Excluir pedido'}
                           >
                             <Trash2 size={14} />
                           </button>
@@ -348,10 +713,18 @@ export default function VibraPage() {
             {orders.length > 0 && summary && (
               <tfoot>
                 <tr style={{ background: 'var(--bg-secondary)', borderTop: '2px solid var(--border)' }}>
-                  <td className="px-4 py-3 font-semibold text-sm" colSpan={2} style={{ color: 'var(--text-primary)' }}>Total</td>
-                  <td className="px-4 py-3 text-right text-sm font-bold" style={{ color: '#60a5fa' }}>{formatNumber(summary.totalLiters, 2)} L</td>
-                  <td className="px-4 py-3 text-right text-sm" style={{ color: 'var(--text-secondary)' }}>R$ {formatNumber(summary.avgUnitPrice, 3)}</td>
-                  <td className="px-4 py-3 text-right text-sm font-bold" style={{ color: '#60a5fa' }}>{formatCurrency(summary.totalValue)}</td>
+                  <td className="px-4 py-3 font-semibold text-sm" colSpan={2} style={{ color: 'var(--text-primary)' }}>
+                    Total ({summary.orderCount} pedidos)
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm font-bold" style={{ color: '#60a5fa' }}>
+                    {formatNumber(summary.totalLiters, 2)} L
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    R$ {formatNumber(summary.avgUnitPrice, 3)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm font-bold" style={{ color: '#60a5fa' }}>
+                    {formatCurrency(summary.totalValue)}
+                  </td>
                   <td colSpan={isAdmin ? 3 : 2} />
                 </tr>
               </tfoot>
@@ -360,57 +733,173 @@ export default function VibraPage() {
         </div>
       </div>
 
-      {/* Modal Novo Pedido */}
+      {/* Modal Novo/Editar Pedido */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Novo Pedido Vibra</h2>
-              <button onClick={() => setModalOpen(false)} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-                <X size={24} />
+              <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                {editingOrder ? 'Editar Pedido Vibra' : 'Novo Pedido Vibra'}
+              </h2>
+              <button
+                onClick={() => setModalOpen(false)}
+                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              >
+                <X size={22} />
               </button>
             </div>
-            
-            <form onSubmit={handleCreateOrder} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Data de Emissão</label>
-                <input
-                  type="date"
-                  required
-                  value={formData.issueDate}
-                  onChange={(e) => setFormData({ ...formData, issueDate: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-xl outline-none"
-                  style={{ background: 'var(--bg-main)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Litros Pedidos</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={formData.liters}
-                  onChange={(e) => setFormData({ ...formData, liters: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-xl outline-none"
-                  style={{ background: 'var(--bg-main)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Valor Unitário (R$)</label>
-                <input
-                  type="number"
-                  step="0.001"
-                  required
-                  value={formData.unitPrice}
-                  onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-xl outline-none"
-                  style={{ background: 'var(--bg-main)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                />
+
+            <form onSubmit={handleSaveOrder} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                    Data de Emissão *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={formData.issueDate}
+                    onChange={(e) => setFormData({ ...formData, issueDate: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl text-sm outline-none"
+                    style={{
+                      background: 'var(--bg-main)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                    Data de Pagamento
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.paymentDate}
+                    onChange={(e) => setFormData({ ...formData, paymentDate: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl text-sm outline-none"
+                    style={{
+                      background: 'var(--bg-main)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
               </div>
 
-              <div className="pt-4 flex justify-end gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                    Nº do Pedido
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 4231521"
+                    value={formData.orderNumber}
+                    onChange={(e) => setFormData({ ...formData, orderNumber: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl text-sm outline-none"
+                    style={{
+                      background: 'var(--bg-main)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                    Nº Nota Fiscal
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 12345"
+                    value={formData.invoiceNumber}
+                    onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl text-sm outline-none"
+                    style={{
+                      background: 'var(--bg-main)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                    Litros Pedidos *
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    required
+                    placeholder="Ex: 5000"
+                    value={formData.liters}
+                    onChange={(e) => setFormData({ ...formData, liters: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl text-sm outline-none"
+                    style={{
+                      background: 'var(--bg-main)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                    Preço/Litro (R$) *
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    required
+                    placeholder="Ex: 5.38"
+                    value={formData.unitPrice}
+                    onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl text-sm outline-none"
+                    style={{
+                      background: 'var(--bg-main)',
+                      borderColor: 'var(--border)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  Status do Pagamento
+                </label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value as VibraStatus })}
+                  className="w-full px-3 py-2 border rounded-xl text-sm outline-none cursor-pointer"
+                  style={{
+                    background: 'var(--bg-main)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <option value="PAID">Pago</option>
+                  <option value="PENDING">Pendente</option>
+                  <option value="PARTIAL">Parcial</option>
+                </select>
+              </div>
+
+              {formData.liters && formData.unitPrice && (
+                <div
+                  className="p-3 rounded-xl border flex items-center justify-between text-sm"
+                  style={{ background: 'var(--bg-main)', borderColor: 'var(--border)' }}
+                >
+                  <span style={{ color: 'var(--text-secondary)' }}>Total Estimado:</span>
+                  <span className="font-bold text-blue-400">
+                    {formatCurrency(parseBRNumber(formData.liters) * parseBRNumber(formData.unitPrice))}
+                  </span>
+                </div>
+              )}
+
+              <div className="pt-3 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
@@ -422,10 +911,10 @@ export default function VibraPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white shadow-md transition-transform active:scale-95"
                   style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)' }}
                 >
-                  {saving ? 'Salvando...' : 'Salvar Pedido'}
+                  {saving ? 'Salvando...' : editingOrder ? 'Salvar Alterações' : 'Criar Pedido'}
                 </button>
               </div>
             </form>

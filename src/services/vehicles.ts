@@ -55,7 +55,7 @@ export async function getVehicleByPlate(plate: string): Promise<Vehicle | null> 
 // CREATE VEHICLE
 // ============================================================
 export async function createVehicle(
-  data: Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt'>,
+  data: Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'updatedBy'>,
   userId: string
 ): Promise<string> {
   const normalized = normalizePlate(data.plate);
