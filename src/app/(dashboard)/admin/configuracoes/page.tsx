@@ -445,8 +445,8 @@ export default function ConfiguracoesPage() {
 
       {/* Branch Modal */}
       {showBranchModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border p-6 animate-scale-in" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="relative w-full max-w-md my-auto rounded-2xl border p-6 animate-scale-in" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
                 {editingBranch ? 'Editar Filial' : 'Nova Filial'}

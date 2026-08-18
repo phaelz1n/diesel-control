@@ -1116,8 +1116,8 @@ export default function VibraPage() {
 
       {/* Modal Novo/Editar Pedido */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-fade-in">
+          <div className="relative bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-md my-auto shadow-2xl animate-scale-in">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
                 {editingOrder ? 'Editar Pedido Vibra' : 'Novo Pedido Vibra'}

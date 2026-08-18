@@ -228,27 +228,27 @@ export default function UsuariosPage() {
 
       {/* CREATE USER MODAL */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border p-6 animate-scale-in" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-            <div className="flex justify-between items-center mb-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="relative w-full max-w-md my-auto max-h-[90vh] flex flex-col rounded-2xl border p-6 animate-scale-in" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+            <div className="flex justify-between items-center mb-5 shrink-0">
               <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Novo Usuário</h2>
-              <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-white/5" style={{ color: 'var(--text-muted)' }}>
+              <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-white/5 transition-colors" style={{ color: 'var(--text-muted)' }}>
                 <XCircle size={20} />
               </button>
             </div>
             
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto pr-1">
               <div>
                 <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>Nome Completo</label>
-                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+                <input type="text" placeholder="Nome do usuário" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
               </div>
               <div>
                 <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>E-mail</label>
-                <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+                <input type="email" placeholder="usuario@empresa.com.br" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
               </div>
               <div>
                 <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>Senha Provisória</label>
-                <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+                <input type="password" placeholder="Senha inicial" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
               </div>
               <div>
                 <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>Perfil de Acesso</label>
@@ -260,7 +260,7 @@ export default function UsuariosPage() {
               </div>
             </div>
             
-            <div className="mt-8 flex justify-end gap-3">
+            <div className="mt-6 pt-2 flex justify-end gap-3 shrink-0">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/5 transition-colors" style={{ color: 'var(--text-primary)' }}>
                 Cancelar
               </button>
