@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
   Plus,
@@ -1114,10 +1115,25 @@ export default function VibraPage() {
         </div>
       </div>
 
-      {/* Modal Novo/Editar Pedido */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-fade-in">
-          <div className="relative bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-md my-auto shadow-2xl animate-scale-in">
+      {/* Modal Novo/Editar Pedido — rendered via portal to bypass containing block */}
+      {modalOpen && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            background: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            overflowY: 'auto',
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setModalOpen(false); }}
+        >
+          <div className="animate-scale-in" style={{ position: 'relative', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '1rem', padding: '1.5rem', width: '100%', maxWidth: '28rem', margin: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.5)' }}>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
                 {editingOrder ? 'Editar Pedido Vibra' : 'Novo Pedido Vibra'}
@@ -1300,7 +1316,8 @@ export default function VibraPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

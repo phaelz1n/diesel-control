@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { Settings2, Bell, Building2, Plus, Edit2, Trash2, Save, X, Tag, AlertTriangle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/useAuth';
@@ -444,9 +445,24 @@ export default function ConfiguracoesPage() {
       )}
 
       {/* Branch Modal */}
-      {showBranchModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-md my-auto rounded-2xl border p-6 animate-scale-in" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+      {showBranchModal && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            background: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            overflowY: 'auto',
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowBranchModal(false); }}
+        >
+          <div className="animate-scale-in" style={{ position: 'relative', width: '100%', maxWidth: '28rem', margin: 'auto', borderRadius: '1rem', border: '1px solid var(--border)', padding: '1.5rem', background: 'var(--bg-card)' }}>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
                 {editingBranch ? 'Editar Filial' : 'Nova Filial'}
@@ -494,7 +510,8 @@ export default function ConfiguracoesPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

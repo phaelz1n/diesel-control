@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { Users, Plus, Edit2, Shield, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
-import { getUsers, updateUser, toggleUserActive, resetUserPassword, createUser } from '@/services/users';
+import { Plus, Edit2, Shield, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
+import { getUsers, toggleUserActive, resetUserPassword, createUser } from '@/services/users';
 import { AppUser, UserRole } from '@/lib/types';
 import { formatDate, getInitials, cn } from '@/lib/utils';
 import { USER_ROLE_LABELS } from '@/lib/constants';
@@ -20,6 +21,176 @@ const roleColors: Record<UserRole, string> = {
   viewer: '#64748b',
 };
 
+// ============================================================
+// PORTAL MODAL — rendered directly into document.body
+// ============================================================
+function CreateUserModal({
+  formData,
+  setFormData,
+  creating,
+  onClose,
+  onSubmit,
+}: {
+  formData: { name: string; email: string; password: string; role: UserRole };
+  setFormData: (d: any) => void;
+  creating: boolean;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="animate-fade-in"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1rem',
+        background: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(4px)',
+        WebkitBackdropFilter: 'blur(4px)',
+        overflowY: 'auto',
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="animate-scale-in"
+        style={{
+          position: 'relative',
+          width: '100%',
+          maxWidth: '28rem',
+          margin: 'auto',
+          borderRadius: '1rem',
+          border: '1px solid var(--border)',
+          padding: '1.5rem',
+          background: 'var(--bg-card)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1.25rem',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+            Novo Usuário
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '0.5rem',
+              borderRadius: '0.75rem',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <XCircle size={20} />
+          </button>
+        </div>
+
+        {/* Fields */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {/* Nome */}
+          <div>
+            <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>
+              Nome Completo
+            </label>
+            <input
+              type="text"
+              placeholder="Nome do usuário"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+          </div>
+
+          {/* E-mail */}
+          <div>
+            <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>
+              E-mail
+            </label>
+            <input
+              type="email"
+              placeholder="usuario@empresa.com.br"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+          </div>
+
+          {/* Senha */}
+          <div>
+            <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>
+              Senha Provisória
+            </label>
+            <input
+              type="password"
+              placeholder="Senha inicial"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+          </div>
+
+          {/* Perfil */}
+          <div>
+            <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>
+              Perfil de Acesso
+            </label>
+            <select
+              value={formData.role}
+              onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
+              className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent cursor-pointer"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            >
+              <option value="admin" style={{ background: 'var(--bg-card)' }}>Administrador</option>
+              <option value="operational" style={{ background: 'var(--bg-card)' }}>Operacional</option>
+              <option value="viewer" style={{ background: 'var(--bg-card)' }}>Visualizador</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/5 transition-colors"
+            style={{ color: 'var(--text-primary)', background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onSubmit}
+            disabled={creating}
+            className="px-6 py-2 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 transition-colors shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {creating ? 'Criando...' : 'Criar Usuário'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ============================================================
+// PAGE
+// ============================================================
 export default function UsuariosPage() {
   const { profile } = useAuth();
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -34,7 +205,8 @@ export default function UsuariosPage() {
     setLoading(true);
     try {
       setUsers(await getUsers());
-    } catch (err) { console.error("Erro detalhado:", err);
+    } catch (err) {
+      console.error('Erro detalhado:', err);
       toast.error('Erro ao carregar usuários.');
     } finally {
       setLoading(false);
@@ -55,7 +227,8 @@ export default function UsuariosPage() {
       );
       setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, active: !u.active } : u));
       toast.success(`Usuário ${user.active ? 'desativado' : 'ativado'}.`);
-    } catch (err) { console.error("Erro detalhado:", err);
+    } catch (err) {
+      console.error('Erro detalhado:', err);
       toast.error('Erro ao atualizar status.');
     }
   };
@@ -64,7 +237,8 @@ export default function UsuariosPage() {
     try {
       await resetUserPassword(user.email);
       toast.success(`E-mail de redefinição enviado para ${user.email}.`);
-    } catch (err) { console.error("Erro detalhado:", err);
+    } catch (err) {
+      console.error('Erro detalhado:', err);
       toast.error('Erro ao enviar e-mail.');
     }
   };
@@ -84,7 +258,7 @@ export default function UsuariosPage() {
         formData.role,
         profile.uid
       );
-      
+
       const newUser: AppUser = {
         id: newUid,
         uid: newUid,
@@ -102,7 +276,7 @@ export default function UsuariosPage() {
       setShowModal(false);
       setFormData({ name: '', email: '', password: '', role: 'operational' });
       toast.success('Usuário criado com sucesso!');
-      
+
       await createAuditLog(
         profile.uid, profile.email, profile.name,
         'CREATE', 'user', newUid,
@@ -226,50 +400,15 @@ export default function UsuariosPage() {
         </div>
       </div>
 
-      {/* CREATE USER MODAL */}
+      {/* Modal rendered via portal directly into document.body */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-md my-auto max-h-[90vh] flex flex-col rounded-2xl border p-6 animate-scale-in" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-            <div className="flex justify-between items-center mb-5 shrink-0">
-              <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Novo Usuário</h2>
-              <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-white/5 transition-colors" style={{ color: 'var(--text-muted)' }}>
-                <XCircle size={20} />
-              </button>
-            </div>
-            
-            <div className="space-y-4 overflow-y-auto pr-1">
-              <div>
-                <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>Nome Completo</label>
-                <input type="text" placeholder="Nome do usuário" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
-              </div>
-              <div>
-                <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>E-mail</label>
-                <input type="email" placeholder="usuario@empresa.com.br" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
-              </div>
-              <div>
-                <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>Senha Provisória</label>
-                <input type="password" placeholder="Senha inicial" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
-              </div>
-              <div>
-                <label className="text-sm font-semibold mb-1 block" style={{ color: 'var(--text-primary)' }}>Perfil de Acesso</label>
-                <select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })} className="w-full px-3 py-2 rounded-xl text-sm outline-none border bg-transparent cursor-pointer" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-                  <option value="admin" style={{ background: 'var(--bg-card)' }}>Administrador</option>
-                  <option value="operational" style={{ background: 'var(--bg-card)' }}>Operacional</option>
-                  <option value="viewer" style={{ background: 'var(--bg-card)' }}>Visualizador</option>
-                </select>
-              </div>
-            </div>
-            
-            <div className="mt-6 pt-2 flex justify-end gap-3 shrink-0">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/5 transition-colors" style={{ color: 'var(--text-primary)' }}>
-                Cancelar
-              </button>
-              <button onClick={handleCreateUser} disabled={creating} className="px-6 py-2 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 transition-colors shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed">
-                {creating ? 'Criando...' : 'Criar Usuário'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <CreateUserModal
+          formData={formData}
+          setFormData={setFormData}
+          creating={creating}
+          onClose={() => setShowModal(false)}
+          onSubmit={handleCreateUser}
+        />
       )}
     </div>
   );
