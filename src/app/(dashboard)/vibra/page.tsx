@@ -988,14 +988,33 @@ export default function VibraPage() {
                 ))
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-16 text-center">
+                  <td colSpan={8} className="px-4 py-12 text-center">
                     <Droplets size={40} className="mx-auto mb-3 text-blue-400/20" />
-                    <p style={{ color: 'var(--text-muted)' }}>
-                      Nenhum pedido Vibra para este período ({selMonth}/{selYear}).
+                    <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      Nenhum pedido Vibra para {selMonth}/{selYear}.
                     </p>
-                    <p className="text-xs mt-1 text-slate-500">
-                      Utilize &ldquo;Importar CSV&rdquo; para carregar os pedidos ou selecione outro mês acima.
-                    </p>
+                    {allDbOrders && allDbOrders.length > 0 ? (
+                      <div className="mt-4 max-w-md mx-auto p-4 rounded-xl bg-blue-950/30 border border-blue-800/40 text-left">
+                        <p className="text-xs text-blue-200 font-medium mb-2">
+                          💡 Existem <strong>{allDbOrders.length} pedidos</strong> cadastrados no banco nos seguintes meses:
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(dbCompetenceBreakdown).map(([comp, d]) => (
+                            <button
+                              key={comp}
+                              onClick={() => setCompetence(comp)}
+                              className="px-2.5 py-1 rounded-lg text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 border border-blue-500/40 font-medium transition-all"
+                            >
+                              {comp} ({d.count} pedidos)
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs mt-1 text-slate-500">
+                        Utilize &ldquo;Importar CSV&rdquo; para carregar os pedidos ou selecione outro mês acima.
+                      </p>
+                    )}
                   </td>
                 </tr>
               ) : (
